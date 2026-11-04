@@ -1,0 +1,20 @@
+# 无头浏览器调试留下的临时用户目录与截图
+.prof-*/
+.tmp*/
+.shot-*.png
+.cl.html
+.ft.html
+.sn.html
+.st.html
+.st1.html
+.st2.html
+
+# 工作区私有数据（记忆日志等）：不属于仓库
+.workbuddy/
+
+# 单文件打包产物：源码改完跑 build.bat 就能重建
+dist/
+
+# 系统垃圾
+Thumbs.db
+.DS_Store

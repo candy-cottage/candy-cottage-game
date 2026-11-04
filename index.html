@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>糖果屋 · 新都蜗牛巷</title>
+<link rel="stylesheet" href="assets/fonts/poxiao/poxiao.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="hud-brand">
+      <div class="brand-mark">
+        <span class="candy-dot"></span>
+      </div>
+      <div class="brand-text">
+        <b>糖果屋</b>
+        <i>新都 · 蜗牛巷</i>
+      </div>
+    </div>
+
+    <div class="hud-phase">
+      <div class="phase-name" id="hud-phase-name">早起准备</div>
+      <div class="phase-time" id="hud-phase-time">05:00 – 07:00</div>
+    </div>
+
+    <div class="hud-ap">
+      <div class="ap-label">行动点 <span id="hud-ap-num">6/6</span></div>
+      <div class="ap-bar" id="hud-ap-bar"></div>
+    </div>
+
+    <div class="hud-stats">
+      <div class="stat" title="金钱">
+        <span class="stat-ico">¥</span>
+        <span id="hud-money">320</span>
+      </div>
+      <div class="stat" title="元气">
+        <span class="stat-ico">☾</span>
+        <span id="hud-energy">100</span>
+        <div class="mini-bar"><i id="hud-energy-bar" style="width:100%"></i></div>
+      </div>
+      <div class="stat" title="信誉">
+        <span class="stat-ico">✦</span>
+        <span id="hud-rep">50</span>
+      </div>
+      <div class="stat day" title="第几天">
+        <span id="hud-day">第 1 天</span>
+      </div>
+      <button class="hud-icon hidden" id="guide-pill" data-act="guide-open" title="展开指引">指引</button>
+      <button class="hud-icon" data-act="save-menu" title="存档 / 读档（Ctrl+S）">存</button>
+      <button class="hud-icon" data-act="to-title" title="返回标题（会先自动存一次）">退</button>
+      <button class="hud-help" data-act="help" title="玩法说明">?</button>
+    </div>
+  </header>
+
+  <!-- 左上角指引：只在有明确下一步时出现（序章 / 新手教学） -->
+  <div id="hud-guide" class="hud-guide hidden">
+    <button class="guide-x" data-act="guide-close" title="收起指引" aria-label="收起指引">×</button>
+    <div class="guide-title" id="guide-title"></div>
+    <div class="guide-sub" id="guide-sub"></div>
+  </div>
+
+
+  <!-- 阶段横幅：切阶段时在中上方弹出，3 秒自动收起 -->
+  <div id="phase-banner" class="phase-banner"></div>
+
+  <main id="stage">
+    <section id="view-panel" class="view"></section>
+    <section id="view-counter" class="view"></section>
+    <section id="view-map" class="view">
+      <canvas id="map-canvas"></canvas>
+      <button id="map-act" class="map-act is-off" data-act="map-interact" type="button"></button>
+      <div id="map-topbar" class="map-topbar"></div>
+      <div id="map-bottombar" class="map-bottombar"></div>
+    </section>
+  </main>
+</div>
+
+<div id="modal-root" class="modal-root hidden"></div>
+<div id="toast-root" class="toast-root"></div>
+<div id="title-screen" class="title-screen">
+  <div class="title-inner">
+    <div class="title-sub">新都 · 蜗牛巷 03 号</div>
+    <h1>糖 果 屋</h1>
+    <div class="title-desc">白天卖糖，晚上接活。<br>母亲的店，母亲的下落，还有这座城市底下的糖。</div>
+    <div class="title-btns">
+      <button class="btn btn-primary" data-act="new-game">开始新的早晨</button>
+      <button class="btn" data-act="continue-game" id="btn-continue">继续上次</button>
+      <button class="btn" data-act="save-menu">读取存档</button>
+    </div>
+    <div class="title-foot">自动存档 · 3 个手动槽位 · 随时停下</div>
+  </div>
+</div>
+
+<script src="src/data.js"></script>
+<script src="src/engine.js"></script>
+<script src="src/story.js"></script>
+<script src="src/map.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>

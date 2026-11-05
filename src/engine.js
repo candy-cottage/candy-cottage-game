@@ -198,6 +198,7 @@ window.Engine = (function () {
   function endPhase() {
     const p = phase();
     settleTakeout();          // 收班：骑手取餐、平台抽成、没赶上的单子作数
+    if (p && p.kind === 'map') courierShift();   // 配送员替你跑掉一单
     // 阶段结束的元气消耗
     if (p.kind === 'map') state.energy = clamp(state.energy - 8, 0, 100);
     else if (p.kind === 'counter') state.energy = clamp(state.energy - 5, 0, 100);
@@ -267,16 +268,13 @@ window.Engine = (function () {
     /* 周考核：每七天一次，决定评级升降 */
     if (state.day % 7 === 0) weeklyReview();
 
-    // 睡眠恢复
-    const slept = state.flags.sleptEarly !== false;
-    state.energy = slept ? 100 : 78;
-    if (!slept) log('昨晚睡得太晚，元气没有完全恢复。', 'bad');
+    // 睡眠恢复：夜间 + 午睡缺一样，第二天都缓不过来
+    nightRecovery();
 
     state.day += 1;
     state.dayDelivered = 0;
     state.daySold = 0;
     state.dayRevenue = 0;
-    state.flags.sleptEarly = true;
 
     // 新一天电话订单（数量随信誉涨）
     generatePhoneOrders(phoneOrderCount());
@@ -426,11 +424,12 @@ window.Engine = (function () {
 
   function makeOrder(opts) {
     let cust = opts.customer || pick(D.CUSTOMERS);
-    /* 目的地必须落在送货白名单里。顾客如果就住在店里（玛德琳太太），
-       或者别处误传了非法地点，就换一位住在能收货地点的客人，
-       这样"谁下的单"和"送到哪"永远对得上，也不会送到自己家。 */
+    /* 自提单固定落在糖果屋；普通单的目的地必须在送货白名单里
+       （住店里的玛德琳太太原本走柜台，现在她的自提单也走柜台）。 */
     let loc = opts.loc || cust.loc;
-    if (D.DELIVER_LOCS.indexOf(loc) < 0) {
+    if (opts.pickup) {
+      loc = 'shop';
+    } else if (D.DELIVER_LOCS.indexOf(loc) < 0) {
       cust = pick(phoneCustomers());
       loc = cust.loc;
     }
@@ -491,6 +490,7 @@ window.Engine = (function () {
       trust,
       strict: dm.strict || 0,
       type: opts.type || (fame ? 'fame' : 'phone'),
+      pickup: !!opts.pickup,
       fame,
       createdDay: state.day,
       delivered: false
@@ -535,6 +535,15 @@ window.Engine = (function () {
     let famous = 0;
     for (let i = 0; i < n; i++) {
       if (state.orders.length >= cap) break;
+      /* 一部分客人不住在送货点：他们打电话预订，然后自己上门拿。
+         自提单不进配送池，做出来放柜台就行。 */
+      if (Math.random() < D.PICKUP.chance) {
+        const inHouse = D.CUSTOMERS.filter(c => D.DELIVER_LOCS.indexOf(c.loc) < 0);
+        if (inHouse.length) {
+          makeOrder({ customer: pick(inHouse), loc: 'shop', type: 'pickup', pickup: true });
+          continue;
+        }
+      }
       // 先挑人再定地址：谁下的单就送到谁那儿，名字和地点不会对不上
       const cust = pick(phoneCustomers());
       const isFame = famous === 0 && Math.random() < fameChance();
@@ -690,9 +699,9 @@ window.Engine = (function () {
   }
 
   /* ---------------- 岗位安排 ----------------
-   * 目前只有一种岗位：柜台。把小皮/小娜留在柜台，米莉就能在坐班时间出门跑一趟，
-   * 柜台不会直接停摆——她替你招呼，但卖得便宜（她不会推销），也记不住熟客。
-   */
+   * 柜台：把学徒留在店里，米莉坐班时间能出门；她招呼得便宜，也记不住熟客。
+   * 配送：得有一辆空闲车（除米莉的摩托外），配送阶段替你送一单，没有小费。
+   * 一个人只能站一个岗位，但柜台和配送可以同时有人。 */
   function staffOnCounter() {
     const post = state.staffPost || {};
     for (const id of state.staff) if (post[id] === 'counter') return id;
@@ -705,16 +714,25 @@ window.Engine = (function () {
     if (state.staff.indexOf(id) < 0) return { ok: false, msg: '店里没这个人。' };
     const t = D.APPRENTICES.find(x => x.id === id);
     if (!state.staffPost) state.staffPost = {};
-    if (post === 'counter') {
-      state.staff.forEach(x => { state.staffPost[x] = null; });
-      state.staffPost[id] = 'counter';
-      log(`${t.name}调到柜台，以后你不在店里也有人招呼客人。`, 'good');
+    if (post === 'counter' || post === 'courier') {
+      if (post === 'courier' && (state.ownedVehicles || []).length < 2) {
+        return { ok: false, msg: '得先买第二辆车给她跑配送——摩托你还自己骑着。' };
+      }
+      if (post === 'counter') {
+        // 柜台只能站一个人，但别把别人已经排好的配送岗位一起清掉
+        state.staff.forEach(x => { if (state.staffPost[x] === 'counter') state.staffPost[x] = null; });
+      }
+      state.staffPost[id] = post;
+      log(post === 'counter'
+        ? `${t.name}调到柜台，以后你不在店里也有人招呼客人。`
+        : `${t.name}开着车去跑配送，配送阶段会替你送一单。`, 'good');
     } else {
       state.staffPost[id] = null;
       log(`${t.name}回后场干活了。`, 'info');
     }
     emit(); save();
-    return { ok: true, msg: post === 'counter' ? `${t.name}今天看柜台` : `${t.name}回后场` };
+    return { ok: true, msg: post === 'counter' ? `${t.name}今天看柜台`
+      : post === 'courier' ? `${t.name}今天跑配送` : `${t.name}回后场` };
   }
 
   /* 玩家不在的那一班：助手自己把柜台撑起来。
@@ -753,6 +771,45 @@ window.Engine = (function () {
     log(`你不在店里，${t.name}招呼了 ${units} 件，柜上收了 ${income}G。`, 'good');
     emit(); save();
     return { who: t.name, units, income };
+  }
+
+  /* 配送员岗位：每个配送阶段，每位学徒替你送掉一单。
+     和第三方平台的区别是——她是你的人，不抽成，但也没有小费（客人只记得糖好吃）。 */
+  function staffCouriers() {
+    const post = state.staffPost || {};
+    return state.staff.filter(id => post[id] === 'courier');
+  }
+  function courierShift() {
+    const list = staffCouriers();
+    if (!list.length || (state.ownedVehicles || []).length < 2) return { count: 0, earned: 0 };
+    let count = 0, earned = 0;
+    for (const id of list) {
+      const o = state.orders.find(x => !x.delivered && !x.pickup &&
+        !(state.tutorial && state.tutorial.on && x.id === state.tutorial.orderId) &&
+        Object.keys(x.items || {}).every(k => stockOf(k) >= x.items[k]));
+      if (!o) break;
+      Object.keys(o.items).forEach(k => addStock(k, -o.items[k]));
+      state.money += o.pay;
+      state.dayRevenue += o.pay;
+      state.stats.earned += o.pay;
+      state.stats.delivered++;
+      state.dayDelivered++;
+      if (state.week) { state.week.revenue += o.pay; state.week.delivered++; state.week.onTime++; }
+      state.reputation = clamp(state.reputation + 0.4, 0, 100);
+      bumpCred('fulfill', 0.3);
+      bumpTrust(o.customer, 0.05);
+      o.delivered = true;
+      earned += o.pay;
+      count++;
+      const t = D.APPRENTICES.find(x => x.id === id);
+      const place = (D.LOCATIONS.find(l => l.id === o.loc) || {}).name || o.loc;
+      log(`${t ? t.name : '学徒'}替你送到${place}：+${o.pay}G（她不收小费）。`, 'good');
+    }
+    if (count) {
+      state.orders = state.orders.filter(o => !o.delivered);
+      emit(); save();
+    }
+    return { count, earned };
   }
 
   /* ---------------- 第三方配送 ----------------
@@ -1449,6 +1506,31 @@ window.Engine = (function () {
     return { count, gained, tips };
   }
 
+  /* ---------------- 到店自提 ----------------
+   * 客人自己上门拿：不进配送池、不占运力、不用出门，也没有小费。
+   * 货得先做出来放柜台，缺货就交不了。 */
+  function pickupOrder(id) {
+    const o = state.orders.find(x => x.id === id && x.pickup && !x.delivered);
+    if (!o) return { ok: false, msg: '这张自提单已经不在了。' };
+    if (!Object.keys(o.items || {}).every(k => stockOf(k) >= o.items[k])) {
+      return { ok: false, msg: '货架上还缺东西，先去制作台。' };
+    }
+    Object.keys(o.items).forEach(k => addStock(k, -o.items[k]));
+    state.money += o.pay;
+    state.dayRevenue += o.pay;
+    if (state.week) { state.week.revenue += o.pay; state.week.delivered++; state.week.onTime++; }
+    state.stats.earned += o.pay;
+    state.stats.delivered++;
+    state.dayDelivered++;
+    state.reputation = clamp(state.reputation + 0.8, 0, 100);
+    bumpCred('fulfill', 0.4);
+    bumpTrust(o.customer, 0.1);
+    state.orders = state.orders.filter(x => x.id !== id);
+    log(`${o.customer}到店把 #${o.id} 取走了：+${o.pay}G（自提，没有小费）。`, 'good');
+    emit(); save();
+    return { ok: true, msg: `${o.customer}拎着糖走了，+${o.pay}G。` };
+  }
+
   function cancelOrder(id, reason) {
     const o = state.orders.find(x => x.id === id);
     if (!o) return;
@@ -1513,6 +1595,40 @@ window.Engine = (function () {
     state.energy = clamp(state.energy + 14, 0, 100);
     log('泡了杯茶，坐在柜台后面发呆。', 'good');
     emit(); save();
+  }
+
+  /* ---------------- 睡眠规则 ----------------
+   * 需求文档：夜间 7 小时（22 点睡到 5 点）+ 午间 1 小时午睡才满元气，
+   * 加班或漏了午睡，第二天就带着疲劳上工。 */
+  function restNap() {
+    state.flags.napped = true;
+    state.energy = clamp(state.energy + 22, 0, 100);
+    log('趴在柜台后睡了半小时，下午撑得住。', 'good');
+    emit(); save();
+    return { ok: true, msg: '元气 +22，今天午睡过了' };
+  }
+  function overtime() {
+    if (state.flags.overtimeDay === state.day) return { ok: false, msg: '今晚已经加过班了。' };
+    state.flags.overtimeDay = state.day;
+    state.ap += 2;                    // 加班是「透支时间」，允许超过这一阶段的上限
+    state.flags.sleptEarly = false;
+    state.energy = clamp(state.energy - 6, 0, 100);
+    log('多开了两小时灯赶工，明早会有点起不来。', 'info');
+    emit(); save();
+    return { ok: true, msg: '多了 2 点行动点，明早元气会差一点' };
+  }
+  function nightRecovery() {
+    const slept = state.flags.sleptEarly !== false;
+    const napped = state.flags.napped === true;
+    let e = slept ? 100 : 78;
+    if (!napped) e -= 12;
+    state.energy = clamp(e, 0, 100);
+    if (!slept && !napped) log('昨晚睡得晚，中午也没合眼，元气没缓过来。', 'bad');
+    else if (!slept) log('昨晚睡得太晚，元气没有完全恢复。', 'bad');
+    else if (!napped) log('中午没睡，第二天有点扛不住。', 'bad');
+    state.flags.sleptEarly = true;
+    state.flags.napped = false;
+    return { slept, napped, energy: state.energy };
   }
 
   /* ---------------- 柜台 ---------------- */
@@ -2092,7 +2208,7 @@ window.Engine = (function () {
     personOf, peopleList, bumpTrust, trustTier,
     upLv, upInfo, upAll, buyUpgrade, caseMul, ovenSalvage, apCostOf, successRate,
     apprenticeList, hireApprentice, fireApprentice, staffAP, dailyWage, STAFF_MAX,
-    staffOnCounter, staffPostOf, assignStaff, staffCounterShift, startTutorial,
+    staffOnCounter, staffPostOf, assignStaff, staffCounterShift, staffCouriers, courierShift, startTutorial,
     bulkQuote, placePurchase, pendingPurchases, arrivePurchases, phaseLinear,
     thirdPartyList, thirdPartyFee, thirdParty,
     billsPreview, homeShare,
@@ -2111,7 +2227,8 @@ window.Engine = (function () {
     modsOwned, modBonus, modApMul, modSpeed, buyMod,
     basesOwned, buyBase, baseProduce,
     counterServe, counterRefuse, counterMake, useAP,
-    deliverOrders, cancelOrder, extendOrder, sleep, rest,
+    deliverOrders, pickupOrder, cancelOrder, extendOrder, sleep, rest,
+    restNap, overtime, nightRecovery,
     callCab, walkHome,
     save, load, applyData, hasSave, wipeSave,
     SLOT_MAX, slotList, slotInfo, autoInfo, saveSlot, loadSlot, deleteSlot

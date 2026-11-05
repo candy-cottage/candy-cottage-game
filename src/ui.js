@@ -383,17 +383,18 @@ window.UI = (function () {
       acts.push({ id: 'tidy', name: '整理橱窗', cost: 1, desc: '元气 +8，信誉 +1', disabled: S.ap < 1 });
     }
     if (p.id === 'noon') {
-      acts.push({ id: 'nap', name: '午睡一会儿', cost: 2, desc: '元气 +22', disabled: S.ap < 2 });
+      acts.push({ id: 'nap', name: '午睡一会儿', cost: 2, desc: '元气 +22 · 今天算睡过午觉', disabled: S.ap < 2 });
       acts.push({ id: 'read', name: '翻翻母亲的旧书', cost: 1, desc: '也许能学到什么', disabled: S.ap < 1 });
       acts.push({ id: 'walk', name: '外出一趟', cost: 0, desc: '进入大地图，用剩余行动点自由活动', disabled: S.ap < 1 });
     }
     if (p.id === 'night') {
       acts.push({ id: 'clean', name: '打扫打烊', cost: 1, desc: '信誉 +2', disabled: S.ap < 1 });
       acts.push({ id: 'account', name: '核对账本', cost: 1, desc: '看看今天的收支', disabled: S.ap < 1 });
+      acts.push({ id: 'overtime', name: '再干一会儿', cost: 0, desc: '+2 AP，但明早元气不足', disabled: S.flags.overtimeDay === S.day });
     }
     // 配送阶段中途回家补货/现做之后，还得能再出门——不然剩下的行动点就白扔了
     if (p.kind === 'map') {
-      const pool = E.state.orders.filter(o => !o.delivered);
+      const pool = E.state.orders.filter(o => !o.delivered && !o.pickup);
       const left = pool.filter(o => loaded.includes(o.id)).length;
       acts.push({
         id: 'go-out', name: wentOutThisPhase ? '再出门' : '装车出门', cost: 0,
@@ -614,10 +615,13 @@ window.UI = (function () {
 
   function tabOrders() {
     const S = E.state;
-    if (!S.orders.length && !(S.takeout && S.takeout.enabled)) {
+    const all = S.orders;
+    const normalOrders = all.filter(o => !o.pickup);
+    const pickups = all.filter(o => o.pickup);
+    if (!all.length && !(S.takeout && S.takeout.enabled)) {
       return `<div class="empty">订单簿是空的。<br>配送阶段开始时会自动带上传真过来的预订。</div>`;
     }
-    const normal = S.orders.length ? S.orders.map(o => {
+    const normal = normalOrders.length ? normalOrders.map(o => {
       const left = o.deadline - S.day;
       const urgent = left <= 0;
       const items = Object.entries(o.items).map(([k, q]) =>
@@ -645,7 +649,37 @@ window.UI = (function () {
         </div>
       </div>`;
     }).join('') : '';
-    return normal + takeoutCard();
+    return normal + pickupCard(pickups) + takeoutCard();
+  }
+
+  /* 到店自提：客人自己上门拿，不进配送池 */
+  function pickupCard(list) {
+    if (!list.length) return '';
+    const rows = list.map(o => {
+      const items = Object.entries(o.items).map(([k, q]) =>
+        `<span class="order-item">${D.PRODUCTS[k] ? D.PRODUCTS[k].name : k} ×${q}</span>`).join('');
+      const has = Object.entries(o.items).every(([k, q]) => E.stockOf(k) >= q);
+      const left = o.deadline - E.state.day;
+      return `<div class="takeout-order">
+        <div class="tk-head">
+          <span class="order-id">自提 #${o.id}</span>
+          <span class="tk-state">${esc(o.customer)} 自己来拿 · ${left <= 0 ? '今天到期' : `还剩 ${left} 天`}</span>
+        </div>
+        <div class="order-items">${items}</div>
+        <div class="order-foot">
+          <span class="order-pay">${o.pay}G</span>
+          <span class="dim">${has ? '货已备齐' : '货架不足'}</span>
+          <div class="order-actions">
+            <button class="btn btn-sm ${has ? 'btn-primary' : ''}" data-act="pickup-serve"
+              data-id="${o.id}" ${has ? '' : 'disabled'}>交给客人</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="card-title" style="margin-top:16px">到店自提 · 不用出门</div>
+      <div class="takeout-card">${rows}
+        <div class="shop-tip">自提单不进配送池、不占运力：做出来放柜台，客人上门时点「交给客人」即可。</div>
+      </div>`;
   }
 
   /* 外卖单：单独一池，不进常规配送的订单簿、不占运力 */
@@ -1004,10 +1038,7 @@ window.UI = (function () {
         </div>
         ${a.hired
           ? `<div class="staff-btns">
-              ${onCounter === a.id
-                ? `<span class="post-on">看柜台</span>
-                   <button class="btn btn-sm btn-ghost" data-act="staff-post" data-id="${a.id}" data-post="">撤回后场</button>`
-                : `<button class="btn btn-sm" data-act="staff-post" data-id="${a.id}" data-post="counter">安排看柜台</button>`}
+              ${staffPostButtons(a.id, S)}
               <button class="btn btn-sm btn-ghost" data-act="fire-app" data-id="${a.id}">辞退</button>
             </div>`
           : `<button class="btn btn-sm ${canHire ? 'btn-primary' : ''}" data-act="hire-app" data-id="${a.id}" ${canHire ? '' : 'disabled'}>安家费 ${a.hire}G</button>`}
@@ -1018,7 +1049,8 @@ window.UI = (function () {
     const bonusAP = hired.reduce((s, a) => s + a.ap, 0);
     const staffTip = `<div class="shop-tip">阁楼住得下 ${E.STAFF_MAX} 个人。
       现在 ${hired.length} 位，每阶段多 <b>${bonusAP}</b> AP，一天多约 <b>${bonusAP * 6}</b> AP。
-      开炉前他们还会自己做点什么——吃你的原料。</div>`;
+      开炉前他们还会自己做点什么——吃你的原料。<br>
+      安排「跑配送」得有第二辆车：配送阶段她替你送一单，不抽成，但客人也不给小费。</div>`;
 
     const oddCard = `<div class="card mini-card">
       <div class="mini-top">
@@ -1092,6 +1124,19 @@ window.UI = (function () {
       }).join('')}</div>
       <div class="shop-tip">装上之后对所有自有载具生效：货架加运力、电机省行动点、电池加车速。</div>
     </div>`;
+  }
+
+  /* 帮工岗位：柜台 / 配送 / 后场三选一；跑配送要有一辆空闲车 */
+  function staffPostButtons(id, S) {
+    const post = E.staffPostOf(id);
+    const hasCar = (S.ownedVehicles || []).length >= 2;
+    const out = [];
+    if (post === 'counter') out.push('<span class="post-on">看柜台</span>');
+    if (post === 'courier') out.push('<span class="post-on">跑配送</span>');
+    if (post) out.push(`<button class="btn btn-sm btn-ghost" data-act="staff-post" data-id="${id}" data-post="">撤回后场</button>`);
+    if (post !== 'counter') out.push(`<button class="btn btn-sm" data-act="staff-post" data-id="${id}" data-post="counter">看柜台</button>`);
+    if (post !== 'courier') out.push(`<button class="btn btn-sm" data-act="staff-post" data-id="${id}" data-post="courier" ${hasCar ? '' : 'title="要先买第二辆车"'}>跑配送${hasCar ? '' : '（缺车）'}</button>`);
+    return out.join('');
   }
 
   /* 产业卡：盘下仓库 / 厂房，之后每个阶段自动产出 */
@@ -1696,7 +1741,7 @@ window.UI = (function () {
     /* 先站回店里。以前这里直接弹出货窗，玩家一按「取消」就停在上一阶段的界面上，
        再点一次那个按钮就把整个配送阶段过去了——所以先把当前阶段的店面铺好。 */
     setView('panel');
-    const orders = E.state.orders.filter(o => !o.delivered);
+    const orders = E.state.orders.filter(o => !o.delivered && !o.pickup);
     if (!orders.length) {
       toast('今天没有待配送的订单，可以自由活动。');
       enterMap([]);
@@ -2892,6 +2937,12 @@ window.UI = (function () {
         renderPanel();
         break;
       }
+      case 'pickup-serve': {
+        const r = E.pickupOrder(+t.dataset.id);
+        toast(r.msg, r.ok ? 'good' : 'bad');
+        renderPanel();
+        break;
+      }
 
       case 'order-third': {
         const r = E.thirdParty(+t.dataset.id);
@@ -3171,9 +3222,12 @@ window.UI = (function () {
       renderPanel();
     } else if (id === 'nap') {
       if (!E.useAP(2)) { toast('行动点不够。', 'bad'); return; }
-      S.energy = E.clamp(S.energy + 22, 0, 100);
-      E.log('趴在柜台后面睡了一会儿。', 'good');
-      toast('元气 +22', 'good');
+      const r = E.restNap();
+      toast(r.msg, 'good');
+      renderPanel();
+    } else if (id === 'overtime') {
+      const r = E.overtime();
+      toast(r.msg, r.ok ? 'good' : 'bad');
       renderPanel();
     } else if (id === 'read') {
       if (!E.useAP(1)) { toast('行动点不够。', 'bad'); return; }
@@ -3194,7 +3248,7 @@ window.UI = (function () {
       // 再出门也走装货窗：车上原有的单默认勾着，可以加装、也可以卸下
       mapMode = 'delivery';
       const left = E.state.orders.filter(o => loaded.includes(o.id) && !o.delivered);
-      const pool = E.state.orders.filter(o => !o.delivered);
+      const pool = E.state.orders.filter(o => !o.delivered && !o.pickup);
       if (!pool.length) {
         loaded = [];
         toast('没有待送的订单了，空车出门。');

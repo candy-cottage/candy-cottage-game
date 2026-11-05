@@ -185,10 +185,13 @@
 
     /* 再出门先过一遍装货窗：车上原有的单默认勾着，还能加装 */
     const reloadBtn = () => $('[data-act="confirm-load"]');
-    const pendingN = E.state.orders.filter(o => !o.delivered).length;
+    const pendingN = E.state.orders.filter(o => !o.delivered && !o.pickup).length;
+    const pickupIds = E.state.orders.filter(o => o.pickup && !o.delivered).map(o => o.id);
     ok('再出门先打开装货窗', !!reloadBtn(), reloadBtn() ? reloadBtn().textContent.trim() : '无');
     ok('装货窗列出全部待送单', $$('[data-act="load-toggle"]').length === pendingN,
       `列出 ${$$('[data-act="load-toggle"]').length} / 待送 ${pendingN}`);
+    ok('自提单不进装货窗',
+      pickupIds.every(id => !$$('[data-act="load-toggle"]').some(b => +b.dataset.id === id)));
     ok('装货窗默认勾上车上原有的单', new RegExp(`出发（${loadedBeforeHome} 单）`).test(reloadBtn() ? reloadBtn().textContent : ''),
       reloadBtn() ? reloadBtn().textContent.trim() : '无');
     // 只挑「能装」的那张：运力不够的卡片点了会被拒绝，那不是 bug
@@ -294,7 +297,13 @@
     ok('停下本身不消耗行动点', E.state.ap === apStop, apStop + '→' + E.state.ap);
 
     /* ---- 传送到订单地点并交付 ---- */
-    const orders = E.state.orders.filter(o => !o.delivered);
+    const orders = E.state.orders.filter(o => !o.delivered && !o.pickup);
+    /* 自提单不进配送池，别拿它当交付目标；极端情况下全是自提单就补一张普通单 */
+    if (!orders.length) {
+      const spare = E.state.orders.find(o => o.pickup && !o.delivered);
+      if (spare) { delete spare.pickup; spare.loc = 'busstop'; spare.type = 'phone'; orders.push(spare); }
+      else orders.push(E.makeOrder({ loc: 'busstop', type: 'phone' }));
+    }
     if (orders.length) {
       const target = orders[0];
       /* 补货：同一个地点上可能挂着好几张已装车的单，只补 orders[0] 的料会漏，
@@ -1449,6 +1458,62 @@
     E.startPhase(2);
     ok('仓库每阶段自动送原料', E.invOf('sugar') >= 1 && E.invOf('flour') >= 1);
     ok('厂房每阶段自动做一件成品', E.totalStockUnits() >= 1);
+
+    /* ================= 助手配送员岗位 ================= */
+    E.state.staff = [];
+    E.state.staffPost = {};
+    E.state.ownedVehicles = ['bike'];
+    const courierId = D.APPRENTICES[0].id;
+    E.state.staff = [courierId];
+    ok('只有一辆车不能安排跑配送', !E.assignStaff(courierId, 'courier').ok);
+    E.state.ownedVehicles = ['bike', 'van'];
+    ok('有第二辆车就能安排跑配送',
+      E.assignStaff(courierId, 'courier').ok && E.staffPostOf(courierId) === 'courier');
+    E.state.orders = [{ id: 9911, customer: '报摊大爷', loc: 'busstop', items: { lollipop: 1 },
+      pay: 40, deadline: E.state.day + 2, trust: 2, strict: 0, type: 'phone', delivered: false }];
+    E.state.stock.lollipop = 1;
+    const cashBeforeCourier = E.state.money;
+    const courierRun = E.courierShift();
+    ok('学徒自动代送一单并全额到账',
+      courierRun.count === 1 && E.state.money === cashBeforeCourier + 40);
+    ok('代送会消耗成品', E.stockOf('lollipop') === 0);
+    ok('代送后订单从订单簿移走', !E.state.orders.some(o => o.id === 9911));
+
+    /* ================= 到店自提 ================= */
+    const pkCust = D.CUSTOMERS.find(c => D.DELIVER_LOCS.indexOf(c.loc) < 0);
+    ok('有不住在送货点的客人', !!pkCust);
+    const pkOrder = E.makeOrder({ customer: pkCust, loc: 'shop', type: 'pickup', pickup: true });
+    ok('自提单落在糖果屋、不进配送池', pkOrder.pickup === true && pkOrder.loc === 'shop');
+    Object.keys(pkOrder.items).forEach(k => {
+      E.state.stock[k] = (E.state.stock[k] || 0) + pkOrder.items[k] + 1;
+    });
+    const cashBeforePickup = E.state.money;
+    const pkResult = E.pickupOrder(pkOrder.id);
+    ok('备齐货能交给上门的客人', pkResult.ok && E.state.money === cashBeforePickup + pkOrder.pay);
+    ok('自提单交完从订单簿移走', !E.state.orders.some(o => o.id === pkOrder.id));
+    const pk2 = E.makeOrder({ customer: pkCust, loc: 'shop', type: 'pickup', pickup: true });
+    Object.keys(pk2.items).forEach(k => { E.state.stock[k] = 0; });
+    ok('缺货时交不了自提单', !E.pickupOrder(pk2.id).ok);
+
+    /* ================= 疲劳 / 睡眠 ================= */
+    E.state.flags.napped = false;
+    E.state.energy = 60;
+    E.restNap();
+    ok('午睡回元气并记下标记', E.state.flags.napped === true && E.state.energy === 82);
+    E.state.flags.overtimeDay = -1;
+    const apBeforeOvertime = E.state.ap;
+    const otResult = E.overtime();
+    ok('睡前加班换 2 AP', otResult.ok && E.state.ap === apBeforeOvertime + 2
+      && E.state.flags.sleptEarly === false);
+    ok('同一天不能反复加班', !E.overtime().ok);
+    E.state.flags.napped = true;
+    E.state.flags.sleptEarly = true;
+    const recFull = E.nightRecovery();
+    ok('夜觉和午睡都够，元气全满', recFull.energy === 100);
+    E.state.flags.napped = false;
+    E.state.flags.sleptEarly = false;
+    const recTired = E.nightRecovery();
+    ok('熬夜又没午睡，第二天更累', recTired.energy < 78, String(recTired.energy));
 
     panel();
   }

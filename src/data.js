@@ -453,6 +453,14 @@ window.GameData = (function () {
     desc: '柜台边上多一台小终端，骑手在巷口等着，不用你出门。'
   };
 
+  /* ---------- 到店自提 ----------
+   * 有一部分客人（比如住在店里的玛德琳太太）不住在送货点，他们自己上门拿。
+   * 这类单不进配送池、不占运力，做出来放柜台就行。 */
+  const PICKUP = {
+    chance: 0.22,        // 电话订单里约两成是自提
+    desc: '自提单不进配送池，也不占运力：做出来放柜台，客人上门时交给她。'
+  };
+
   /* ---------- 阶段 ---------- */
   const PHASES = [
     { id: 'prep', name: '早起准备', time: '05:00', span: '05:00 – 07:00', ap: 8, kind: 'panel', tone: '#8f7bd0', tip: '预制糖果与烘焙。做完就出门。' },
@@ -795,6 +803,6 @@ window.GameData = (function () {
     TILE, WORLD, REGIONS, ROADS, LOCATIONS, RAW, PRODUCTS, VEHICLES,
     PHASES, CUSTOMERS, DIALOGS, SHOPS, METRO, TUNE, DELIVER_LOCS, DEMAND,
     COSTS, CRED, RANKS, SHOP_UPGRADES, APPRENTICES, LINES, SECURITY, TUTORIAL, PURCHASE,
-    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES
+    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP
   };
 })();

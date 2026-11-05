@@ -294,6 +294,7 @@ window.UI = (function () {
     maybePhoto();
     maybeEvan();
     maybeLetter();
+    maybeVisconti();
     maybeNightEvent();
     /* 半途读档：冲突没打完，先把弹窗摆回来，别让人白白挨一顿 */
     const pendingBattle = E.state.battle;
@@ -770,7 +771,7 @@ window.UI = (function () {
         ${p.hint ? `<div class="story-hint">${esc(p.hint)}</div>` : ''}
         <div class="story-bar"><i style="width:${pct}%"></i></div>
       </div>`);
-    } else if (G.state().done.indexOf('ch2') >= 0) {
+    } else if (G.state().done.indexOf(G.ORDER[G.ORDER.length - 1]) >= 0) {
       out.push(`<div class="empty">主线暂时写到这里。<br>糖果屋照常开门，订单照常要送——后面的故事还在写。</div>`);
     } else {
       out.push(`<div class="empty">主线还没开始。<br>眼下就是老老实实开店——白天卖糖，晚上送货。</div>`);
@@ -824,6 +825,21 @@ window.UI = (function () {
     }
     if (G.isStep('mint')) {
       acts.push({ id: 'ch2-mint', name: '熬一炉薄荷硬糖', desc: '收尾。明晚九点，老地方' });
+    }
+    if (G.isStep('raven')) {
+      acts.push({ id: 'ch3-raven', name: '去第七仓库赴约', desc: '码头区 · 3 动作点 · 老地方，八点五十' });
+    }
+    if (G.isStep('prep')) {
+      acts.push({ id: 'ch3-prep', name: '备一箱宴会糖', desc: '2 动作点 · 60G 备料 · 给自己留一份布丁' });
+    }
+    if (G.isStep('banquet')) {
+      acts.push({ id: 'ch3-banquet', name: '前往银月庄园', desc: '城南 · 3 动作点 · 晚宴甜点与露台' });
+    }
+    if (G.isStep('study')) {
+      acts.push({ id: 'ch3-study', name: '上二楼书房', desc: '2 动作点 · 趁乱取走图纸' });
+    }
+    if (G.isStep('end')) {
+      acts.push({ id: 'ch3-end', name: '敲开焦糖脆壳', desc: '收尾。回店里，把今晚的东西理清楚' });
     }
     if (acts.length) {
       out.push(`<div class="card"><div class="card-title">现在可以做</div>
@@ -3008,7 +3024,83 @@ window.UI = (function () {
           G.finish();
           tab = 'story';
           renderPanel();
-          toast('第二章完成。薄荷硬糖明天上架。', 'good');
+          toast('第二章完成。明晚九点，老地方。', 'good');
+        });
+        break;
+      }
+
+      /* ---- 第三章：赴约 → 签合同 → 备料 → 赴宴 → 书房取证 → 收尾 ---- */
+      case 'ch3-raven': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(3)) { toast('这一趟要 3 动作点。', 'bad'); break; }
+        E.log('把「营业中」翻过去。码头第七仓库，八点五十。', 'info');
+        playStory(G.SCRIPTS.ch3_raven, () => {
+          G.giveItem('motherFile', 1);
+          G.giveItem('ravenCase', 1);
+          G.giveItem('silverMoonInvite', 1);
+          G.addClue('eternalGate');
+          G.addClue('leilaAlive');
+          G.addClue('harvestMark');
+          G.setStep('contract');
+          tab = 'story';
+          renderPanel();
+          toast('收下旧档案与银月请柬。明早有人会来。', 'good');
+        });
+        break;
+      }
+      case 'ch3-prep': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(2)) { toast('备料要 2 动作点。', 'bad'); break; }
+        E.state.money -= 60;
+        E.emit(); E.save();
+        playStory(G.SCRIPTS.ch3_prep, () => {
+          G.giveItem('trickCandy', 1);
+          G.giveItem('caramelPudding', 1);
+          G.setStep('banquet');
+          tab = 'story';
+          renderPanel();
+          toast('糖和布丁都备好了。下午三点，车会来。', 'good');
+        });
+        break;
+      }
+      case 'ch3-banquet': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(3)) { toast('赴宴要 3 动作点。', 'bad'); break; }
+        E.log('换上白色厨师服，车准时停在巷口。银月庄园，晚七点开席。', 'info');
+        playStory(G.SCRIPTS.ch3_banquet, () => {
+          G.addClue('suppressor');
+          G.addClue('greatHarvest');
+          G.addClue('councilMole');
+          G.setStep('study');
+          tab = 'story';
+          renderPanel();
+          toast('露台上那几句话，值这一整晚。', 'good');
+        });
+        break;
+      }
+      case 'ch3-study': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(2)) { toast('上楼要 2 动作点。', 'bad'); break; }
+        E.log('借口去洗手间，沿走廊往别墅深处走。', 'info');
+        playStory(G.SCRIPTS.ch3_study, () => {
+          G.giveItem('towerBlueprint', 1);
+          G.giveItem('supplierList', 1);
+          G.addClue('seventhAnchor');
+          G.setStep('end');
+          tab = 'story';
+          renderPanel();
+          toast('图纸拍到了。该回店里把东西理清楚。', 'good');
+        });
+        break;
+      }
+      case 'ch3-end': {
+        const G = GS(); if (!G) break;
+        playStory(G.SCRIPTS.ch3_end, () => {
+          G.takeItem('caramelPudding', 1);   // 留给自己的那份，吃掉了
+          G.finish();
+          tab = 'story';
+          renderPanel();
+          toast('第三章完成。棋盘的样子，总算看清了。', 'good');
         });
         break;
       }
@@ -3811,6 +3903,28 @@ window.UI = (function () {
         toast('信箱里躺着一个黑信封。', 'good');
       });
     }, 500);
+    return true;
+  }
+
+  /* ================= 第三章：焦糖布丁与黑手党晚宴 =================
+   * 原文里「明晚九点，老地方」是渡鸦的邀约，「第二天上午十点」是维斯孔蒂上门。
+   * 游戏里赴约走委托页按钮，签合同用上午坐班的钩子；宴会和书房都是叙事出门，
+   * 不再造一张要玩家重新找路的地图。 */
+  function maybeVisconti() {
+    const G = GS();
+    if (!G || !G.isStep('contract') || G.flag('viscontiDone')) return false;
+    if (!E.phase() || E.phase().id !== 'shiftAM') return false;
+    G.setFlag('viscontiDone');
+    playStory(G.SCRIPTS.ch3_visconti, () => {
+      G.giveItem('silverContract', 1);
+      E.state.money += 800;                 // 预付的一半，余款在收尾的章节奖励里
+      E.log('签下银月庄园的宴会合同，收了预付的一半 800G。', 'good');
+      G.setStep('prep');
+      E.emit(); E.save();
+      tab = 'story';
+      renderPanel();
+      toast('合同签了，预付款 800G 到账。', 'good');
+    });
     return true;
   }
 

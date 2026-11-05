@@ -1,6 +1,6 @@
 /* ============================================================
  *  主线流程测试（仅 flowtest.html 使用）
- *  从「开始新的早晨」一路点到第一章结束，验证每一步的衔接。
+ *  从「开始新的早晨」一路点到第三章结束，验证每一步的衔接。
  * ============================================================ */
 (function () {
   window.CANDY_TEST_MODE = true;   // 主线流程测试不弹路上事件
@@ -243,7 +243,107 @@
     await wait(250);
     ok('第二章完成', G.state().done.indexOf('ch2') >= 0, JSON.stringify(G.state().done));
     ok('拿到薄荷硬糖', G.itemCount('mintHard') >= 1);
+    ok('第二章结束后自动接上第三章', G.state().chapter === 'ch3' && G.isStep('raven'),
+      String(G.state().chapter) + '/' + (G.step() || {}).id);
+
+    /* ---- 15. 第三章：赴约（委托页按钮，3 AP） ----
+       第三章每个动作都扣 AP；流程测试不跑经营循环，先把 AP 补够再点。 */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const ravenBtn = document.querySelector('[data-act="ch3-raven"]');
+    ok('委托页出现「去第七仓库赴约」', !!ravenBtn);
+    if (ravenBtn) ravenBtn.click();
+    await wait(150);
+    ok('赴约剧情已播放', !!document.getElementById('story-node'));
+    await skipStory();
+    await wait(300);
+    ok('第三章推进到「等维斯孔蒂」', G.isStep('contract'), (G.step() || {}).id);
+    ok('拿到母亲的旧档案', G.itemCount('motherFile') >= 1);
+    ok('拿到手提箱与银月请柬',
+      G.itemCount('ravenCase') >= 1 && G.itemCount('silverMoonInvite') >= 1);
+    ok('记下永恒甜蜜之门与母亲还活着', G.hasClue('eternalGate') && G.hasClue('leilaAlive'));
+
+    /* ---- 16. 上午坐班：维斯孔蒂上门签合同 ---- */
+    const cashV0 = E.state.money;
+    E.startPhase(2);
+    UI.enterPhase();
+    await wait(900);
+    ok('维斯孔蒂上门触发剧情', !!document.getElementById('story-node'));
+    await skipStory();
+    await wait(300);
+    ok('第三章推进到「备料」', G.isStep('prep'), (G.step() || {}).id);
+    ok('拿到宴会合同', G.itemCount('silverContract') >= 1);
+    ok('预付款 800G 到账', E.state.money === cashV0 + 800,
+      `${cashV0}→${E.state.money}`);
+
+    /* ---- 17. 备料 ---- */
+    E.state.ap = 10;
+    const cashP0 = E.state.money;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const prepBtn = document.querySelector('[data-act="ch3-prep"]');
+    ok('委托页出现「备一箱宴会糖」', !!prepBtn);
+    if (prepBtn) prepBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('备料扣掉 60G', E.state.money === cashP0 - 60, `${cashP0}→${E.state.money}`);
+    ok('拿到特制糖与焦糖布丁',
+      G.itemCount('trickCandy') >= 1 && G.itemCount('caramelPudding') >= 1);
+    ok('第三章推进到「赴宴」', G.isStep('banquet'), (G.step() || {}).id);
+
+    /* ---- 18. 赴宴 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const banquetBtn = document.querySelector('[data-act="ch3-banquet"]');
+    ok('委托页出现「前往银月庄园」', !!banquetBtn);
+    if (banquetBtn) banquetBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第三章推进到「书房」', G.isStep('study'), (G.step() || {}).id);
+    ok('记下香料 / 大收割 / 议会内鬼三条线索',
+      G.hasClue('suppressor') && G.hasClue('greatHarvest') && G.hasClue('councilMole'));
+
+    /* ---- 19. 二楼书房取证 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const studyBtn = document.querySelector('[data-act="ch3-study"]');
+    ok('委托页出现「上二楼书房」', !!studyBtn);
+    if (studyBtn) studyBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第三章推进到「收尾」', G.isStep('end'), (G.step() || {}).id);
+    ok('拿到新都塔图纸与供应商名单',
+      G.itemCount('towerBlueprint') >= 1 && G.itemCount('supplierList') >= 1);
+    ok('记下第七锚点', G.hasClue('seventhAnchor'));
+
+    /* ---- 20. 收尾：敲开焦糖脆壳 ---- */
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const endBtn = document.querySelector('[data-act="ch3-end"]');
+    ok('委托页出现「敲开焦糖脆壳」', !!endBtn);
+    if (endBtn) endBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(300);
+    ok('第三章完成', G.state().done.indexOf('ch3') >= 0, JSON.stringify(G.state().done));
+    ok('章节奖励到账', E.state.reputation > 50 && E.state.money > cashV0,
+      `信誉 ${Math.round(E.state.reputation)} / 现金 ${Math.round(E.state.money)}`);
     ok('主线回到自由经营', G.state().chapter === null, String(G.state().chapter));
+    ok('章节目录列出四章', $$('.chapter').length === G.ORDER.length,
+      $$('.chapter').length + ' / ' + G.ORDER.length);
+    const panelTxt = (document.getElementById('view-panel') || {}).textContent || '';
+    ok('委托页显示「暂时写到这里」', panelTxt.indexOf('暂时写到这里') >= 0);
 
     panel();
   }

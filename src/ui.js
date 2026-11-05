@@ -859,6 +859,24 @@ window.UI = (function () {
     if (G.isStep('bait')) {
       acts.push({ id: 'ch4-bait', name: '布下明天的局', desc: '2 动作点 · 明天歇业一天' });
     }
+    if (G.isStep('invite')) {
+      acts.push({ id: 'ch5-invite', name: '收下邀请函', desc: '先认一认第 23 号拍品上的纹章' });
+    }
+    if (G.isStep('auction')) {
+      acts.push({ id: 'ch5-auction', name: '混进 B2 拍卖厅', desc: '新岛东区 · 3 动作点 · 禁止影像记录' });
+    }
+    if (G.isStep('bid')) {
+      acts.push({ id: 'ch5-bid', name: '举牌竞拍', desc: '2 动作点 · 第 23 号，上限 105 万' });
+    }
+    if (G.isStep('escape')) {
+      acts.push({ id: 'ch5-escape', name: '激活巧克力金币', desc: '2 动作点 · 甩掉追踪，登上海鸥号' });
+    }
+    if (G.isStep('scroll')) {
+      acts.push({ id: 'ch5-scroll', name: '展开曾祖母的卷轴', desc: '1 动作点 · 五十年前的那场清洗' });
+    }
+    if (G.isStep('dawn')) {
+      acts.push({ id: 'ch5-dawn', name: '把罐子放上工作台', desc: '收尾。七日倒计时' });
+    }
     if (acts.length) {
       out.push(`<div class="card"><div class="card-title">现在可以做</div>
         <div class="action-list">${acts.map(a => `
@@ -3206,6 +3224,94 @@ window.UI = (function () {
           tab = 'story';
           renderPanel();
           toast('第四章完成。明天，酸味先到。', 'good');
+        });
+        break;
+      }
+
+      /* ---- 第五章：邀请函 → 拍卖厅 → 竞拍 → 撤离 → 卷轴 → 收尾 ----
+         第四章的 finish() 会自动接上 ch5。这一章把第一章的三处伏笔收回来：
+         正统纹章 / 「第一个已回收」 / 「你的家族遗产，你收得下吗」。
+         一百零五万走的是渡鸦备的资金通道，不动店里的现金账。 */
+      case 'ch5-invite': {
+        const G = GS(); if (!G) break;
+        playStory(G.SCRIPTS.ch5_invite, () => {
+          G.giveItem('forgedInvite', 1);
+          G.giveItem('auctionCatalog', 1);
+          G.addClue('trueCrest');
+          G.setStep('auction');
+          tab = 'story';
+          renderPanel();
+          toast('第 23 号拍品上的，是完整纹章。', 'good');
+        });
+        break;
+      }
+      case 'ch5-auction': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(3)) { toast('去新岛要 3 动作点。', 'bad'); break; }
+        E.log('换上深蓝晚礼服，搭渡轮去新岛。', 'info');
+        playStory(G.SCRIPTS.ch5_auction, () => {
+          G.giveItem('lotNotes', 1);
+          G.addClue('firstRecovered');
+          G.setStep('bid');
+          tab = 'story';
+          renderPanel();
+          toast('第一章那间地下室，只是这条链子最底下的一节。', 'good');
+        });
+        break;
+      }
+      case 'ch5-bid': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(2)) { toast('这一轮竞价要 2 动作点。', 'bad'); break; }
+        playStory(G.SCRIPTS.ch5_bid, () => {
+          G.giveItem('candyJar', 1);
+          G.addClue('grayHair');
+          G.setStep('escape');
+          tab = 'story';
+          renderPanel();
+          toast('一百零五万，成交。可他像是故意让给你的。', 'good');
+        });
+        break;
+      }
+      case 'ch5-escape': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(2)) { toast('撤离要 2 动作点。', 'bad'); break; }
+        playStory(G.SCRIPTS.ch5_escape, () => {
+          G.giveItem('chocoCoin', 1);
+          G.giveItem('lSeal', 1);
+          G.giveItem('gullPass', 1);
+          G.addClue('lMark');
+          G.setStep('scroll');
+          tab = 'story';
+          renderPanel();
+          toast('蜡封上是一个 L。海鸥号已经离港。', 'good');
+        });
+        break;
+      }
+      case 'ch5-scroll': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(1)) { toast('读卷轴要 1 动作点。', 'bad'); break; }
+        playStory(G.SCRIPTS.ch5_scroll, () => {
+          G.giveItem('eleanorScroll', 1);
+          G.giveItem('bloodCoin', 1);
+          G.addClue('marcoBetrayal');
+          G.addClue('pureBlood');
+          G.setStep('dawn');
+          tab = 'story';
+          renderPanel();
+          toast('五十年前的叛徒，和一把叫「血脉」的钥匙。', 'good');
+        });
+        break;
+      }
+      case 'ch5-dawn': {
+        const G = GS(); if (!G) break;
+        playStory(G.SCRIPTS.ch5_dawn, () => {
+          G.giveItem('motherBook', 1);
+          G.addClue('legacyAnswer');
+          G.addClue('sevenDays');
+          G.finish();
+          tab = 'story';
+          renderPanel();
+          toast('第五章完成。七个锚点闭合之前，还有时间。', 'good');
         });
         break;
       }

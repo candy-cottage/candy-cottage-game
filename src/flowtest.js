@@ -1,6 +1,7 @@
 /* ============================================================
  *  主线流程测试（仅 flowtest.html 使用）
- *  从「开始新的早晨」一路点到第四章结束，验证每一步的衔接。
+ *  从「开始新的早晨」一路点到第五章结束，验证每一步的衔接；
+ *  第五章还会检查第一章留下的线索/道具是否仍在，以及三处伏笔被回收。
  * ============================================================ */
 (function () {
   window.CANDY_TEST_MODE = true;   // 主线流程测试不弹路上事件
@@ -445,8 +446,120 @@
     ok('拿到设局道具与反制线索',
       G.itemCount('baitKit') >= 1 && G.hasClue('counterPlan'));
     ok('小源仍在店里帮忙', E.state.staff.indexOf('yuan') >= 0);
+    ok('第四章结束后自动接上第五章', G.state().chapter === 'ch5' && G.isStep('invite'),
+      String(G.state().chapter) + '/' + (G.step() || {}).id);
+    ok('第一章的线索与道具都还在',
+      G.hasClue('blueMark') && G.hasClue('watcher') && G.itemCount('snowBrooch') >= 1);
+    ok('第五章六步剧本齐全',
+      G.CHAPTERS.ch5.steps.length === 6 &&
+      ['invite', 'auction', 'bid', 'escape', 'scroll', 'dawn']
+        .every(k => Array.isArray(G.SCRIPTS['ch5_' + k])));
+
+    /* ---- 27. 第五章：邀请函，把第一章的三处伏笔重新翻开 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const inviteBtn = document.querySelector('[data-act="ch5-invite"]');
+    ok('委托页出现「收下邀请函」', !!inviteBtn);
+    if (inviteBtn) inviteBtn.click();
+    await wait(150);
+    ok('邀请函剧情已播放', !!document.getElementById('story-node'));
+    await skipStory();
+    await wait(300);
+    ok('第五章推进到「混进拍卖厅」', G.isStep('auction'), (G.step() || {}).id);
+    ok('拿到伪造邀请函与拍卖目录',
+      G.itemCount('forgedInvite') >= 1 && G.itemCount('auctionCatalog') >= 1);
+    ok('记下正统纹章（接回蓝色烙印）', G.hasClue('trueCrest') && G.hasClue('blueMark'));
+
+    /* ---- 28. B2 拍卖厅：第一章地下室的下游 ---- */
+    E.state.ap = 10;
+    const apA0 = E.state.ap;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const auctionBtn = document.querySelector('[data-act="ch5-auction"]');
+    ok('委托页出现「混进 B2 拍卖厅」', !!auctionBtn);
+    if (auctionBtn) auctionBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第五章推进到「举牌竞拍」', G.isStep('bid'), (G.step() || {}).id);
+    ok('去新岛扣掉 3 AP', E.state.ap === apA0 - 3, `${apA0}→${E.state.ap}`);
+    ok('拿到拍品抄录', G.itemCount('lotNotes') >= 1);
+    ok('记下「第一个已回收」（接回空铁笼照片）',
+      G.hasClue('firstRecovered') && G.hasClue('watcher'));
+
+    /* ---- 29. 竞价：105 万，但不动店里的现金 ---- */
+    E.state.ap = 10;
+    const cashBid0 = E.state.money;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const bidBtn = document.querySelector('[data-act="ch5-bid"]');
+    ok('委托页出现「举牌竞拍」', !!bidBtn);
+    if (bidBtn) bidBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第五章推进到「激活巧克力金币」', G.isStep('escape'), (G.step() || {}).id);
+    ok('拿到科洛蒂娅糖果罐', G.itemCount('candyJar') >= 1);
+    ok('记下故意放水的灰发男人', G.hasClue('grayHair'));
+    ok('105 万走剧情资金、店里现金没变', E.state.money === cashBid0,
+      `${cashBid0}→${E.state.money}`);
+
+    /* ---- 30. 撤离：蜡封上的 L 与海鸥号 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const escapeBtn = document.querySelector('[data-act="ch5-escape"]');
+    ok('委托页出现「激活巧克力金币」', !!escapeBtn);
+    if (escapeBtn) escapeBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第五章推进到「展开卷轴」', G.isStep('scroll'), (G.step() || {}).id);
+    ok('拿到巧克力金币 / L 蜡封 / 海鸥号口令',
+      G.itemCount('chocoCoin') >= 1 && G.itemCount('lSeal') >= 1 && G.itemCount('gullPass') >= 1);
+    ok('记下蜡封上的 L', G.hasClue('lMark'));
+
+    /* ---- 31. 卷轴：五十年前的叛徒与钥匙 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const scrollBtn = document.querySelector('[data-act="ch5-scroll"]');
+    ok('委托页出现「展开曾祖母的卷轴」', !!scrollBtn);
+    if (scrollBtn) scrollBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第五章推进到「把罐子放上工作台」', G.isStep('dawn'), (G.step() || {}).id);
+    ok('拿到卷轴与血脉金币',
+      G.itemCount('eleanorScroll') >= 1 && G.itemCount('bloodCoin') >= 1);
+    ok('记下叛徒与纯净守护之血',
+      G.hasClue('marcoBetrayal') && G.hasClue('pureBlood'));
+
+    /* ---- 32. 收尾：回答第一章那句挑衅，回到自由经营 ---- */
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const dawnBtn = document.querySelector('[data-act="ch5-dawn"]');
+    ok('委托页出现「把罐子放上工作台」', !!dawnBtn);
+    if (dawnBtn) dawnBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(300);
+    ok('第五章完成', G.state().done.indexOf('ch5') >= 0, JSON.stringify(G.state().done));
+    ok('拿到母亲的书', G.itemCount('motherBook') >= 1);
+    ok('记下家族遗产与七日倒计时',
+      G.hasClue('legacyAnswer') && G.hasClue('sevenDays'));
+    ok('第一章「你的家族遗产，你收得下吗」有了答案',
+      G.hasClue('watcher') && G.hasClue('legacyAnswer'));
+    ok('章节奖励到账', E.state.reputation > 50, String(Math.round(E.state.reputation)));
     ok('主线回到自由经营', G.state().chapter === null, String(G.state().chapter));
-    ok('章节目录列出五章', $$('.chapter').length === G.ORDER.length,
+    ok('章节目录列出六章', $$('.chapter').length === G.ORDER.length,
       $$('.chapter').length + ' / ' + G.ORDER.length);
     const panelTxt = (document.getElementById('view-panel') || {}).textContent || '';
     ok('委托页显示「暂时写到这里」', panelTxt.indexOf('暂时写到这里') >= 0);

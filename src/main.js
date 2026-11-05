@@ -73,6 +73,11 @@
         window.Engine.state.story.chapter = null;
         window.Engine.emit();          // 让 HUD / 左上角指引跟着刷新
       }
+      // ?chapter=ch3：直接跳到某一章的开头试剧情（别和 &free 一起用）
+      const cm = q.match(/chapter=([a-z0-9_]+)/);
+      if (cm && window.GameStory && window.GameStory.CHAPTERS[cm[1]]) {
+        window.GameStory.startChapter(cm[1]);
+      }
       // ?far：把第一单挪到新岛，用来验证「行动点不够」的红色提示
       if (q.indexOf('far') >= 0 && window.Engine.state.orders.length) {
         window.Engine.state.orders[0].loc = 'council';

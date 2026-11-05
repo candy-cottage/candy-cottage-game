@@ -25,7 +25,9 @@ window.MapView = (function () {
   function apMul() {
     const S = window.Engine && window.Engine.state;
     const v = D.VEHICLES[(S && S.vehicle) || 'bike'] || D.VEHICLES.bike;
-    return v.apMul || 1;
+    // 修车铺的高扭矩电机直接减 apMul：同样的 1 AP 能跑更远
+    const bonus = window.Engine && window.Engine.modApMul ? window.Engine.modApMul() : 0;
+    return Math.max(0.4, (v.apMul || 1) + bonus);
   }
   function apOfPx(px) { return Math.max(1, Math.ceil(px * apMul() / AP_PER_PX)); }
   function pxPerAp() { return Math.round(AP_PER_PX / apMul()); }
@@ -1314,9 +1316,10 @@ window.MapView = (function () {
     apEmptyFired = false;
     let dx = 0, dy = 0;
     const kb = keys;
+    const modSpd = window.Engine && window.Engine.modSpeed ? window.Engine.modSpeed() : 0;
     const speedBase = sneak
       ? (sneak.crouch ? 40 : 72)
-      : (player.riding ? D.VEHICLES[S.vehicle].speed : 66);
+      : (player.riding ? D.VEHICLES[S.vehicle].speed + modSpd : 66);
     const fatigue = S.energy < 35 ? 0.78 : 1;
     const speed = speedBase * fatigue;
 

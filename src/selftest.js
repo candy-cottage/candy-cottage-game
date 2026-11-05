@@ -1417,6 +1417,39 @@
     ok('渡船能跨海到新岛', boat.ok && boat.name === '新岛站');
     ok('公交不去没开的地方', !E.rideTransit('bus', 'market').ok);
 
+    /* ================= 载具改装 ================= */
+    ok('改装表有三条线', D.VEHICLE_MODS.length === 3);
+    E.state.mods = [];
+    E.state.money = 9999;
+    E.state.rank = 'C';
+    E.state.vehicle = 'bike';
+    const cap0 = E.capacity();
+    const px0 = window.MapView.pxPerAp();
+    const m1 = E.buyMod('rack');
+    ok('能装加宽货架', m1.ok && E.capacity() === cap0 + 4);
+    const m2 = E.buyMod('engine');
+    ok('高扭矩电机让每 AP 跑得更远', m2.ok && window.MapView.pxPerAp() > px0,
+      `${px0} → ${window.MapView.pxPerAp()}px`);
+    ok('同一件改装不能装两次', !E.buyMod('rack').ok);
+    ok('改装按标价扣钱', E.state.money === 9999 - 1200 - 1600);
+    const m3 = E.buyMod('battery');
+    ok('续航电池加速度', m3.ok && E.modSpeed() === 18);
+
+    /* ================= 基地 / 厂房自动生产 ================= */
+    E.state.bases = [];
+    E.state.rank = 'D';
+    ok('评级不够盘不下厂房', !E.buyBase('factory').ok);
+    E.state.rank = 'B';
+    E.state.money = 99999;
+    E.state.inv = {}; E.state.stock = {};
+    const baseWh = E.buyBase('warehouse');
+    ok('能盘下小仓库', baseWh.ok && (E.state.bases || []).indexOf('warehouse') >= 0);
+    ok('能盘下旧厂房', E.buyBase('factory').ok);
+    ok('同一处产业不能盘两次', !E.buyBase('warehouse').ok);
+    E.startPhase(2);
+    ok('仓库每阶段自动送原料', E.invOf('sugar') >= 1 && E.invOf('flour') >= 1);
+    ok('厂房每阶段自动做一件成品', E.totalStockUnits() >= 1);
+
     panel();
   }
 

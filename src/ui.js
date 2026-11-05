@@ -1068,7 +1068,52 @@ window.UI = (function () {
       + `<div class="shop-ups">${upCards}</div>`
       + `<div class="card-title" style="margin-top:16px">帮工</div>`
       + `<div class="shop-apps">${staffCards}</div>`
-      + staffTip;
+      + staffTip + baseCard();
+  }
+
+  /* 修车铺的改装卡：车库页与修车铺弹窗共用 */
+  function modCard() {
+    const S = E.state;
+    return `<div class="card" style="margin-top:14px"><div class="card-title">改装 · 修车铺娜娜</div>
+      <div class="shop-ups">${D.VEHICLE_MODS.map(m => {
+        const owned = (S.mods || []).indexOf(m.id) >= 0;
+        const can = !owned && E.rankAtLeast(m.rank) && S.money >= m.price;
+        return `<div class="shop-up">
+          <div class="shop-up-top">
+            <span class="shop-up-icon">🔧</span>
+            <b class="shop-up-name">${esc(m.name)}</b>
+            <span class="shop-up-tag">${esc(m.tag)}</span>
+            ${owned ? '<span class="gear-owned">已装</span>' : ''}
+          </div>
+          <div class="shop-up-cur">${esc(m.desc)}</div>
+          <div class="shop-up-next">${owned ? '零件已经上车了' : `${m.price}G · ${m.rank} 级可装`}</div>
+          ${owned ? '' : `<button class="btn btn-sm ${can ? 'btn-primary' : ''}" data-act="buy-mod" data-key="${m.id}" ${can ? '' : 'disabled'}>装上</button>`}
+        </div>`;
+      }).join('')}</div>
+      <div class="shop-tip">装上之后对所有自有载具生效：货架加运力、电机省行动点、电池加车速。</div>
+    </div>`;
+  }
+
+  /* 产业卡：盘下仓库 / 厂房，之后每个阶段自动产出 */
+  function baseCard() {
+    const S = E.state;
+    return `<div class="card-title" style="margin-top:16px">产业 · 自动生产</div>
+      <div class="shop-ups">${Object.entries(D.BASES).map(([id, b]) => {
+        const owned = (S.bases || []).indexOf(id) >= 0;
+        const can = !owned && E.rankAtLeast(b.rank) && S.money >= b.price;
+        return `<div class="shop-up">
+          <div class="shop-up-top">
+            <span class="shop-up-icon">🏭</span>
+            <b class="shop-up-name">${esc(b.name)}</b>
+            <span class="shop-up-tag">${esc(b.tag)}</span>
+            ${owned ? '<span class="gear-owned">已盘下</span>' : ''}
+          </div>
+          <div class="shop-up-cur">${esc(b.desc)}</div>
+          <div class="shop-up-next">${owned ? '每个阶段自动产出' : `${b.price}G · ${b.rank} 级解锁`}</div>
+          ${owned ? '' : `<button class="btn btn-sm ${can ? 'btn-primary' : ''}" data-act="buy-base" data-key="${id}" ${can ? '' : 'disabled'}>盘下来</button>`}
+        </div>`;
+      }).join('')}</div>
+      <div class="shop-tip">仓库送原料、厂房做成品，每个阶段自动到账，不花行动点。</div>`;
   }
 
   function tabVehicle() {
@@ -1081,7 +1126,7 @@ window.UI = (function () {
         <div class="veh-body">
           <div class="veh-name">${v.name} ${active ? '<span style="font-size:9px;color:#2c7d58">（使用中）</span>' : ''}</div>
           <div class="veh-desc">${v.desc}</div>
-          <div class="veh-spec">运力 <b>${v.cap}</b> 单位 · 速度 <b>${v.speed}</b></div>
+          <div class="veh-spec">运力 <b>${v.cap + E.modBonus('cap')}</b> 单位 · 速度 <b>${v.speed + E.modSpeed()}</b> · 每 AP <b>${Math.round(((D.TUNE && D.TUNE.apPerPx) || 110) / Math.max(0.4, (v.apMul || 1) + E.modApMul()))}</b>px</div>
         </div>
         ${owned
           ? `<button class="btn btn-sm" data-act="vehicle-select" data-key="${k}" ${active ? 'disabled' : ''}>使用</button>`
@@ -1089,7 +1134,7 @@ window.UI = (function () {
       </div>`;
     }).join('') + `<div style="font-size:10.5px;color:#a493ae;margin-top:10px;line-height:1.8;">
       配送阶段开始前，需要在出货单里挑选本次要送的订单——运力装不下的，只能留到下一趟。
-    </div>`;
+    </div>` + modCard();
   }
 
   function tabLog() {
@@ -2226,12 +2271,12 @@ window.UI = (function () {
         <div class="veh-icon">${k === 'bike' ? '🏍' : k === 'van' ? '🚐' : '🚚'}</div>
         <div class="veh-body"><div class="veh-name">${v.name}</div>
           <div class="veh-desc">${v.desc}</div>
-          <div class="veh-spec">运力 <b>${v.cap}</b> · 速度 <b>${v.speed}</b> · 每 AP <b>${Math.round(((D.TUNE && D.TUNE.apPerPx) || 86) / (v.apMul || 1))}</b>px</div></div>
+          <div class="veh-spec">运力 <b>${v.cap + E.modBonus('cap')}</b> · 速度 <b>${v.speed + E.modSpeed()}</b> · 每 AP <b>${Math.round(((D.TUNE && D.TUNE.apPerPx) || 110) / Math.max(0.4, (v.apMul || 1) + E.modApMul()))}</b>px</div></div>
         ${owned ? '<span style="font-size:11px;color:#2c7d58">已拥有</span>'
           : `<button class="btn btn-sm btn-gold" data-act="veh-buy" data-key="${k}" ${S.money < v.price ? 'disabled' : ''}>${v.price}G</button>`}
       </div>`;
     }).join('');
-    openModal({ title: '修车铺', sub: `金钱 ¥${money(S.money)}`, body: list, footer: `<button class="btn btn-ghost" data-act="close-modal">离开</button>` });
+    openModal({ title: '修车铺', sub: `金钱 ¥${money(S.money)}`, body: list + modCard(), footer: `<button class="btn btn-ghost" data-act="close-modal">离开</button>` });
   }
 
   /* ================= 弹窗 ================= */
@@ -2699,6 +2744,18 @@ window.UI = (function () {
 
       case 'buy-upgrade': {
         const r = E.buyUpgrade(t.dataset.key);
+        toast(r.msg, r.ok ? 'good' : 'bad');
+        renderPanel();
+        break;
+      }
+      case 'buy-mod': {
+        const r = E.buyMod(t.dataset.key);
+        toast(r.msg, r.ok ? 'good' : 'bad');
+        renderPanel();
+        break;
+      }
+      case 'buy-base': {
+        const r = E.buyBase(t.dataset.key);
         toast(r.msg, r.ok ? 'good' : 'bad');
         renderPanel();
         break;

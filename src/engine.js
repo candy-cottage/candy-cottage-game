@@ -74,7 +74,11 @@ window.Engine = (function () {
     /* 路上事件的冷却窗口：{ key: '第几天-第几阶段', count: 这一阶段已经碰上几回 } */
     roadEvent: { key: '', count: 0 },
     /* 外卖平台：独立订单池，不占常规配送的运力，也不进订单簿 */
-    takeout: { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null }
+    takeout: { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null },
+    /* 修车铺装过的改装 id（全车通用，跟着存档走） */
+    mods: [],
+    /* 已经盘下来的产业 id：仓库 / 厂房 */
+    bases: []
   };
 
   /* ---------------- 事件总线 ---------------- */
@@ -146,6 +150,8 @@ window.Engine = (function () {
     state.trip = { loaded: [], mode: null, wentOut: false, onMap: false };
     state.roadEvent = { key: '', count: 0 };
     state.takeout = { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null };
+    state.mods = [];
+    state.bases = [];
     log('清晨五点。糖果屋的灯亮起来了。', 'good');
     generatePhoneOrders(2);
     startPhase(0);
@@ -164,6 +170,7 @@ window.Engine = (function () {
 
   function startPhase(idx) {
     state.phaseIdx = idx;
+    baseProduce();              // 仓库/厂房每个阶段自动产出
     arrivePurchases();          // 批发商的货可能在换阶段时到
     const p = D.PHASES[idx];
     state.apMax = p.ap + staffAP();
@@ -542,8 +549,71 @@ window.Engine = (function () {
     return Object.values(o.items).reduce((a, b) => a + b, 0);
   }
 
+  /* ---------------- 载具改装 ----------------
+   * 装上就对所有自有载具生效：货架加运力、电机省行动点、电池加速度。
+   * map.js 从 modApMul / modSpeed 读加成，不自己翻 state。 */
+  function modsOwned() { return Array.isArray(state.mods) ? state.mods : []; }
+  function modBonus(key) {
+    return D.VEHICLE_MODS.reduce((a, m) =>
+      a + (modsOwned().indexOf(m.id) >= 0 ? ((m.effect || {})[key] || 0) : 0), 0);
+  }
+  function modApMul() { return modBonus('apMul'); }
+  function modSpeed() { return modBonus('speed'); }
+  function buyMod(id) {
+    const m = D.VEHICLE_MODS.find(x => x.id === id);
+    if (!m) return { ok: false, msg: '娜娜没听过这个改装。' };
+    if (modsOwned().indexOf(id) >= 0) return { ok: false, msg: '已经装过了。' };
+    if (m.rank && !rankAtLeast(m.rank)) {
+      return { ok: false, msg: `要 ${m.rank} 级才接这活（现在是 ${state.rank} 级）。` };
+    }
+    if (state.money < m.price) return { ok: false, msg: '钱不够。' };
+    state.money -= m.price;
+    state.mods.push(id);
+    log(`修车铺给车装了${m.name}（-${m.price}G）。`, 'good');
+    emit(); save();
+    return { ok: true, msg: `${m.name}装好了。` };
+  }
+
   function capacity() {
-    return D.VEHICLES[state.vehicle].cap;
+    return D.VEHICLES[state.vehicle].cap + modBonus('cap');
+  }
+
+  /* ---------------- 基地 / 厂房 ----------------
+   * 用钱换「不用自己动手的产量」：仓库送原料、厂房产成品，按阶段结算。 */
+  function basesOwned() { return Array.isArray(state.bases) ? state.bases : []; }
+  function buyBase(id) {
+    const b = D.BASES[id];
+    if (!b) return { ok: false, msg: '没这处产业。' };
+    if (basesOwned().indexOf(id) >= 0) return { ok: false, msg: '已经盘下来了。' };
+    if (b.rank && !rankAtLeast(b.rank)) {
+      return { ok: false, msg: `要 ${b.rank} 级才谈得下来（现在是 ${state.rank} 级）。` };
+    }
+    if (state.money < b.price) return { ok: false, msg: '钱不够。' };
+    state.money -= b.price;
+    state.bases.push(id);
+    log(`盘下了${b.name}（-${b.price}G）。以后每个阶段它自己会动。`, 'good');
+    emit(); save();
+    return { ok: true, msg: `${b.name}到手，下一阶段开始产出。` };
+  }
+  function baseProduce() {
+    if (!basesOwned().length) return { raw: 0, made: 0 };
+    let raw = 0, made = 0;
+    if (basesOwned().indexOf('warehouse') >= 0) {
+      const g = D.BASES.warehouse.give || {};
+      Object.keys(g).forEach(k => { addInv(k, g[k]); raw += g[k]; });
+    }
+    if (basesOwned().indexOf('factory') >= 0) {
+      const keys = productKeys();
+      if (keys.length) {
+        made = D.BASES.factory.units || 1;
+        addStock(pick(keys), made);
+      }
+    }
+    /* 每个阶段都产，但只在早晨写一条日志，免得日记被刷屏 */
+    if (state.phaseIdx === 0 && (raw || made)) {
+      log(`自动线开工：仓库送 ${raw} 份原料、厂房做 ${made} 件成品。`, 'good');
+    }
+    return { raw, made };
   }
 
   /* 车辆升级 */
@@ -1765,7 +1835,9 @@ window.Engine = (function () {
       story: { chapter: null, step: 0, flags: {}, done: [], items: {}, clues: [] },
       trip: { loaded: [], mode: null, wentOut: false, onMap: false },
       roadEvent: { key: '', count: 0 },
-      takeout: { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null }
+      takeout: { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null },
+      mods: [],
+      bases: []
     };
   }
 
@@ -1946,6 +2018,10 @@ window.Engine = (function () {
     t.orders = t.orders.filter(o => o && typeof o.id === 'number' &&
       (o.status === 'new' || o.status === 'ready') && o.items && typeof o.items === 'object');
     if (t.last && typeof t.last !== 'object') t.last = null;
+    if (!Array.isArray(state.mods)) state.mods = [];
+    state.mods = state.mods.filter(id => D.VEHICLE_MODS.some(m => m.id === id));
+    if (!Array.isArray(state.bases)) state.bases = [];
+    state.bases = state.bases.filter(id => !!D.BASES[id]);
   }
 
   function save() { return writeKey(SAVE_KEY); }
@@ -2032,6 +2108,8 @@ window.Engine = (function () {
     rollTakeoutOrders, packTakeout, settleTakeout,
     takeoutOrders: () => takeoutState().orders,
     buyVehicle, selectVehicle, buyRaw, canCraft, craft, sell,
+    modsOwned, modBonus, modApMul, modSpeed, buyMod,
+    basesOwned, buyBase, baseProduce,
     counterServe, counterRefuse, counterMake, useAP,
     deliverOrders, cancelOrder, extendOrder, sleep, rest,
     callCab, walkHome,

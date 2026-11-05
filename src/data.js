@@ -302,6 +302,31 @@ window.GameData = (function () {
     truck: { key: 'truck', name: '小型货车', cap: 20, speed: 104, apMul: 0.72, price: 5000, rank: 'B', desc: '蓝白涂装。开着它送货，整条街都让路。' }
   };
 
+  /* ---------- 载具改装 ----------
+   * 一次性投入，装上之后对所有自有载具生效（娜娜说：零件是通用的，别问为什么）。
+   * apMul 是负数加成：同样 1 点行动点能多跑一截。 */
+  const VEHICLE_MODS = [
+    { id: 'engine', name: '高扭矩电机', price: 1600, rank: 'C', tag: '省力', desc: '同样的 1 点行动点能多跑一截。', effect: { apMul: -0.12 } },
+    { id: 'rack', name: '加宽货架', price: 1200, rank: 'C', tag: '运力', desc: '一趟多装 4 个单位的糖。', effect: { cap: 4 } },
+    { id: 'battery', name: '续航电池', price: 900, rank: 'D', tag: '速度', desc: '车速 +18，跑图更快。', effect: { speed: 18 } }
+  ];
+
+  /* ---------- 基地 / 厂房 ----------
+   * 原设计里「盘下仓库和厂房，自动化生产原料/成品」。
+   * 产出按**阶段**结算（一天七次），不花米莉的行动点；越贵的产线越晚解锁。 */
+  const BASES = {
+    warehouse: {
+      name: '巷口小仓库', price: 2400, rank: 'C', tag: '原料',
+      desc: '盘下巷口那间空屋。每个阶段自动送来砂糖×1、面粉×1。',
+      give: { sugar: 1, flour: 1 }
+    },
+    factory: {
+      name: '旧街厂房', price: 5200, rank: 'B', tag: '成品',
+      desc: '一条半自动产线：每个阶段自己做出一件已经学会的糖，不用米莉动手。',
+      units: 1
+    }
+  };
+
   /* ---------- 全局调参 ----------
    * apPerPx：每消耗 1 行动点能走多少像素（摩托基准）。想让送货松一点就调大。
    *   早间配送 14 AP：110 → 1540px，够去码头跑个来回；86 → 只有 1204px，去新岛必然回不来。
@@ -770,6 +795,6 @@ window.GameData = (function () {
     TILE, WORLD, REGIONS, ROADS, LOCATIONS, RAW, PRODUCTS, VEHICLES,
     PHASES, CUSTOMERS, DIALOGS, SHOPS, METRO, TUNE, DELIVER_LOCS, DEMAND,
     COSTS, CRED, RANKS, SHOP_UPGRADES, APPRENTICES, LINES, SECURITY, TUTORIAL, PURCHASE,
-    ROAD_EVENTS, TAKEOUT, TRANSIT
+    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES
   };
 })();

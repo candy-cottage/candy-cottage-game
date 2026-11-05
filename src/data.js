@@ -678,6 +678,14 @@ window.GameData = (function () {
       id: 'toto', name: '托托', tag: '有一把力气', wage: 140, hire: 840, ap: 2,
       craft: ['cake', 'choco'],
       desc: '码头扛过包，能一个人把整箱原料搬上阁楼。'
+    },
+    /* 小源不是招来的：第四章「柠檬酸糖与背叛助手」里他回店里上班，
+       剧情节点会调 Engine.joinStoryApprentice('yuan') 解锁并让他直接上工。
+       storyOnly 让店铺页在第四章之前不列出这个人，也不允许提前雇。 */
+    {
+      id: 'yuan', name: '小源', tag: '半工半读', wage: 40, hire: 0, ap: 2,
+      craft: ['lollipop', 'lemonDrop', 'cookie'], storyOnly: true,
+      desc: '在蜗牛巷住了两年的穷学生，半年前开始在店里兼职。守规矩、手脚细，妹妹小悠在读高三。'
     }
   ];
 

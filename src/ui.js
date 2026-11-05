@@ -841,6 +841,24 @@ window.UI = (function () {
     if (G.isStep('end')) {
       acts.push({ id: 'ch3-end', name: '敲开焦糖脆壳', desc: '收尾。回店里，把今晚的东西理清楚' });
     }
+    if (G.isStep('return')) {
+      acts.push({ id: 'ch4-return', name: '开门，让小源进来', desc: '他会留在店里帮忙 · 店铺页可排岗位' });
+    }
+    if (G.isStep('trace')) {
+      acts.push({ id: 'ch4-trace', name: '检查取件口', desc: '闭店之后 · 1 动作点 · 显影粉与药水' });
+    }
+    if (G.isStep('mirror')) {
+      acts.push({ id: 'ch4-mirror', name: '回放镜像水晶', desc: '工作室 · 2 动作点 · 这一个月的记录' });
+    }
+    if (G.isStep('stone')) {
+      acts.push({ id: 'ch4-stone', name: '用通讯石联络', desc: '1 动作点 · 确认小悠的处境' });
+    }
+    if (G.isStep('talk')) {
+      acts.push({ id: 'ch4-talk', name: '叫小源到后厨', desc: '1 动作点 · 该谈谈了' });
+    }
+    if (G.isStep('bait')) {
+      acts.push({ id: 'ch4-bait', name: '布下明天的局', desc: '2 动作点 · 明天歇业一天' });
+    }
     if (acts.length) {
       out.push(`<div class="card"><div class="card-title">现在可以做</div>
         <div class="action-list">${acts.map(a => `
@@ -1076,7 +1094,7 @@ window.UI = (function () {
               ${staffPostButtons(a.id, S)}
               <button class="btn btn-sm btn-ghost" data-act="fire-app" data-id="${a.id}">辞退</button>
             </div>`
-          : `<button class="btn btn-sm ${canHire ? 'btn-primary' : ''}" data-act="hire-app" data-id="${a.id}" ${canHire ? '' : 'disabled'}>安家费 ${a.hire}G</button>`}
+          : `<button class="btn btn-sm ${canHire ? 'btn-primary' : ''}" data-act="hire-app" data-id="${a.id}" ${canHire ? '' : 'disabled'}>${a.hire ? '安家费 ' + a.hire + 'G' : '请来帮忙'}</button>`}
       </div>`;
     }).join('');
 
@@ -3101,6 +3119,93 @@ window.UI = (function () {
           tab = 'story';
           renderPanel();
           toast('第三章完成。棋盘的样子，总算看清了。', 'good');
+        });
+        break;
+      }
+
+      /* ---- 第四章：小源回来 → 查痕迹 → 镜像 → 通讯石 → 摊牌 → 设局 ----
+         第一步顺手把小源带进雇佣系统（解锁 + 有空位就自动上工）。 */
+      case 'ch4-return': {
+        const G = GS(); if (!G) break;
+        const join = E.joinStoryApprentice('yuan');
+        E.log('门铃响了。小源把旧帆布书包放在后厨，回柜台帮忙。', 'info');
+        playStory(G.SCRIPTS.ch4_return, () => {
+          G.giveItem('lemonJar', 1);
+          G.giveItem('observationBook', 1);
+          G.addClue('yuanOdd');
+          G.setStep('trace');
+          tab = 'story';
+          renderPanel();
+          toast(join.hired ? '小源回店里上工了。店铺页能给他排岗位。' : join.msg, 'good');
+        });
+        break;
+      }
+      case 'ch4-trace': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(1)) { toast('查一圈要 1 动作点。', 'bad'); break; }
+        playStory(G.SCRIPTS.ch4_trace, () => {
+          G.giveItem('hiddenInk', 1);
+          G.addClue('trackedParcel');
+          G.setStep('mirror');
+          tab = 'story';
+          renderPanel();
+          toast('药水显出一行不是她写的字。', 'good');
+        });
+        break;
+      }
+      case 'ch4-mirror': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(2)) { toast('回放要 2 动作点。', 'bad'); break; }
+        E.log('走进工作室，调出最近一个月的镜像水晶。', 'info');
+        playStory(G.SCRIPTS.ch4_mirror, () => {
+          G.giveItem('voiceCrystal', 1);
+          G.addClue('coercion');
+          G.addClue('watched');
+          G.setStep('stone');
+          tab = 'story';
+          renderPanel();
+          toast('被盯着的不只是小源，是这间店。', 'good');
+        });
+        break;
+      }
+      case 'ch4-stone': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(1)) { toast('联络要 1 动作点。', 'bad'); break; }
+        playStory(G.SCRIPTS.ch4_stone, () => {
+          G.giveItem('commStone', 1);
+          G.giveItem('truthLemon', 1);
+          G.addClue('xiaoyou');
+          G.setStep('talk');
+          tab = 'story';
+          renderPanel();
+          toast('小悠暂时安全，但一直在视线里。明天得谈谈。', 'good');
+        });
+        break;
+      }
+      case 'ch4-talk': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(1)) { toast('这一谈要 1 动作点。', 'bad'); break; }
+        playStory(G.SCRIPTS.ch4_talk, () => {
+          G.giveItem('honeyCake', 1);
+          G.addClue('spiralTattoo');
+          G.setStep('bait');
+          tab = 'story';
+          renderPanel();
+          toast('他全说了。接下来该米莉走一步棋。', 'good');
+        });
+        break;
+      }
+      case 'ch4-bait': {
+        const G = GS(); if (!G) break;
+        if (!E.useAP(2)) { toast('布这个局要 2 动作点。', 'bad'); break; }
+        E.log('明天糖果屋歇业一天。', 'info');
+        playStory(G.SCRIPTS.ch4_bait, () => {
+          G.giveItem('baitKit', 1);
+          G.addClue('counterPlan');
+          G.finish();
+          tab = 'story';
+          renderPanel();
+          toast('第四章完成。明天，酸味先到。', 'good');
         });
         break;
       }

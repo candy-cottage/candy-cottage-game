@@ -1,6 +1,6 @@
 /* ============================================================
  *  主线流程测试（仅 flowtest.html 使用）
- *  从「开始新的早晨」一路点到第三章结束，验证每一步的衔接。
+ *  从「开始新的早晨」一路点到第四章结束，验证每一步的衔接。
  * ============================================================ */
 (function () {
   window.CANDY_TEST_MODE = true;   // 主线流程测试不弹路上事件
@@ -339,8 +339,114 @@
     ok('第三章完成', G.state().done.indexOf('ch3') >= 0, JSON.stringify(G.state().done));
     ok('章节奖励到账', E.state.reputation > 50 && E.state.money > cashV0,
       `信誉 ${Math.round(E.state.reputation)} / 现金 ${Math.round(E.state.money)}`);
+    ok('第三章结束后自动接上第四章', G.state().chapter === 'ch4' && G.isStep('return'),
+      String(G.state().chapter) + '/' + (G.step() || {}).id);
+    ok('第四章之前小源还没解锁',
+      !E.apprenticeUnlocked('yuan') && !E.apprenticeList().some(a => a.id === 'yuan'));
+
+    /* ---- 21. 第四章：开门，让小源进来（同时把人带进雇佣系统） ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const returnBtn = document.querySelector('[data-act="ch4-return"]');
+    ok('委托页出现「开门，让小源进来」', !!returnBtn);
+    if (returnBtn) returnBtn.click();
+    await wait(150);
+    ok('小源回来剧情已播放', !!document.getElementById('story-node'));
+    await skipStory();
+    await wait(300);
+    ok('第四章推进到「检查取件口」', G.isStep('trace'), (G.step() || {}).id);
+    ok('小源解锁并出现在帮工名单', E.apprenticeUnlocked('yuan')
+      && E.apprenticeList().some(a => a.id === 'yuan'));
+    ok('小源自动进店上工', E.state.staff.indexOf('yuan') >= 0,
+      JSON.stringify(E.state.staff));
+    document.querySelector('[data-act="tab"][data-tab="shop"]').click();
+    await wait(100);
+    const shopTxt = (document.getElementById('view-panel') || {}).textContent || '';
+    ok('店铺页帮工卡列出小源', shopTxt.indexOf('小源') >= 0);
+    ok('拿到柠檬糖与观察记录本',
+      G.itemCount('lemonJar') >= 1 && G.itemCount('observationBook') >= 1);
+    ok('记下「小源不对劲」', G.hasClue('yuanOdd'));
+
+    /* ---- 22. 闭店查取件口 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const traceBtn = document.querySelector('[data-act="ch4-trace"]');
+    ok('委托页出现「检查取件口」', !!traceBtn);
+    if (traceBtn) traceBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第四章推进到「镜像水晶」', G.isStep('mirror'), (G.step() || {}).id);
+    ok('拿到隐形附注', G.itemCount('hiddenInk') >= 1);
+    ok('记下被标记的包裹', G.hasClue('trackedParcel'));
+
+    /* ---- 23. 镜像水晶回放 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const mirrorBtn = document.querySelector('[data-act="ch4-mirror"]');
+    ok('委托页出现「回放镜像水晶」', !!mirrorBtn);
+    if (mirrorBtn) mirrorBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第四章推进到「通讯石」', G.isStep('stone'), (G.step() || {}).id);
+    ok('拿到集音水晶录音', G.itemCount('voiceCrystal') >= 1);
+    ok('记下胁迫与被监视', G.hasClue('coercion') && G.hasClue('watched'));
+
+    /* ---- 24. 通讯石确认小悠 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const stoneBtn = document.querySelector('[data-act="ch4-stone"]');
+    ok('委托页出现「用通讯石联络」', !!stoneBtn);
+    if (stoneBtn) stoneBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第四章推进到「后厨摊牌」', G.isStep('talk'), (G.step() || {}).id);
+    ok('拿到通讯石与真相柠檬糖',
+      G.itemCount('commStone') >= 1 && G.itemCount('truthLemon') >= 1);
+    ok('记下小悠的处境', G.hasClue('xiaoyou'));
+
+    /* ---- 25. 后厨摊牌 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const talkBtn = document.querySelector('[data-act="ch4-talk"]');
+    ok('委托页出现「叫小源到后厨」', !!talkBtn);
+    if (talkBtn) talkBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(250);
+    ok('第四章推进到「设局」', G.isStep('bait'), (G.step() || {}).id);
+    ok('拿到掺了解药的蜂蜜蛋糕', G.itemCount('honeyCake') >= 1);
+    ok('记下螺旋纹身的人', G.hasClue('spiralTattoo'));
+
+    /* ---- 26. 布下明天的局 ---- */
+    E.state.ap = 10;
+    UI.setView('panel');
+    document.querySelector('[data-act="tab"][data-tab="story"]').click();
+    await wait(100);
+    const baitBtn = document.querySelector('[data-act="ch4-bait"]');
+    ok('委托页出现「布下明天的局」', !!baitBtn);
+    if (baitBtn) baitBtn.click();
+    await wait(150);
+    await skipStory();
+    await wait(300);
+    ok('第四章完成', G.state().done.indexOf('ch4') >= 0, JSON.stringify(G.state().done));
+    ok('拿到设局道具与反制线索',
+      G.itemCount('baitKit') >= 1 && G.hasClue('counterPlan'));
+    ok('小源仍在店里帮忙', E.state.staff.indexOf('yuan') >= 0);
     ok('主线回到自由经营', G.state().chapter === null, String(G.state().chapter));
-    ok('章节目录列出四章', $$('.chapter').length === G.ORDER.length,
+    ok('章节目录列出五章', $$('.chapter').length === G.ORDER.length,
       $$('.chapter').length + ' / ' + G.ORDER.length);
     const panelTxt = (document.getElementById('view-panel') || {}).textContent || '';
     ok('委托页显示「暂时写到这里」', panelTxt.indexOf('暂时写到这里') >= 0);

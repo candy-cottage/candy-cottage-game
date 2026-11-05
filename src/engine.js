@@ -676,18 +676,54 @@ window.Engine = (function () {
   /* ---------------- 学徒 ---------------- */
   const STAFF_MAX = 2;
 
+  /* 剧情带来的帮工：第四章之前不出现在店铺页，也不让提前雇。
+     标记写在 state.story.flags 里（由 GameStory.setFlag 落盘）——
+     engine 只认这份状态，不去反向依赖剧情模块。 */
+  function apprenticeUnlocked(idOrObj) {
+    const t = typeof idOrObj === 'string'
+      ? D.APPRENTICES.find(x => x.id === idOrObj) : idOrObj;
+    if (!t) return false;
+    if (!t.storyOnly) return true;
+    const s = state.story;
+    return !!(s && s.flags && s.flags.yuanJoined);
+  }
+
+  /* 剧情节点把人直接带进店：解锁 + 有空位就自动上工，不收安家费。
+     阁楼满了也不硬塞，只解锁，让玩家腾出空位后自己到店铺页请他。 */
+  function joinStoryApprentice(id) {
+    const t = D.APPRENTICES.find(x => x.id === id);
+    if (!t) return { ok: false, msg: '没有这个人。' };
+    if (!state.story) state.story = { chapter: null, step: 0, flags: {}, done: [], items: {}, clues: [] };
+    if (!state.story.flags) state.story.flags = {};
+    state.story.flags.yuanJoined = 1;
+    if (state.staff.indexOf(id) < 0 && state.staff.length < STAFF_MAX) {
+      state.staff.push(id);
+      log(`${t.name}回糖果屋上工了。每阶段 +${t.ap} AP，每天工钱 ${t.wage}G。`, 'good');
+      emit(); save();
+      return { ok: true, hired: true, msg: `${t.name}回店里帮忙了` };
+    }
+    emit(); save();
+    return {
+      ok: true, hired: false,
+      msg: state.staff.indexOf(id) >= 0 ? `${t.name}已经在店里了`
+        : `阁楼住满了，${t.name}先记在帮工名单上，腾出空位再到店铺页请他`
+    };
+  }
+
   function apprenticeList() {
-    return D.APPRENTICES.map(t => ({
+    return D.APPRENTICES.filter(t => apprenticeUnlocked(t)).map(t => ({
       id: t.id, name: t.name, tag: t.tag, wage: t.wage, hire: t.hire,
       ap: t.ap, desc: t.desc, craft: t.craft.slice(),
       hired: state.staff.indexOf(t.id) >= 0,
-      roomLeft: state.staff.length < STAFF_MAX
+      roomLeft: state.staff.length < STAFF_MAX,
+      storyOnly: !!t.storyOnly
     }));
   }
 
   function hireApprentice(id) {
     const t = D.APPRENTICES.find(x => x.id === id);
     if (!t) return { ok: false, msg: '没有这个人。' };
+    if (!apprenticeUnlocked(t)) return { ok: false, msg: '时候还没到。' };
     if (state.staff.indexOf(id) >= 0) return { ok: false, msg: `${t.name}已经在店里了。` };
     if (state.staff.length >= STAFF_MAX) return { ok: false, msg: '阁楼只住得下两个人。' };
     if (state.money < t.hire) return { ok: false, msg: `安家费还差 ${t.hire - state.money}G。` };
@@ -2492,6 +2528,7 @@ window.Engine = (function () {
     personOf, peopleList, bumpTrust, trustTier,
     upLv, upInfo, upAll, buyUpgrade, caseMul, ovenSalvage, apCostOf, successRate,
     apprenticeList, hireApprentice, fireApprentice, staffAP, dailyWage, STAFF_MAX,
+    apprenticeUnlocked, joinStoryApprentice,
     staffOnCounter, staffPostOf, assignStaff, staffCounterShift, staffCouriers, courierShift, startTutorial,
     bulkQuote, placePurchase, pendingPurchases, arrivePurchases, phaseLinear,
     thirdPartyList, thirdPartyFee, thirdParty,

@@ -842,6 +842,49 @@ window.Engine = (function () {
     return d[to] == null ? null : d[to];
   }
 
+  /* 地铁不是白坐的：车票按段收，首末班按当前阶段的钟点判断。
+     早起准备（05:00）站台还没开，配送阶段才坐得上。 */
+  function clockText() {
+    const p = phase();
+    return p ? p.time : '05:00';
+  }
+  function metroOpen() {
+    const h = parseInt(String(clockText()).split(':')[0], 10);
+    return h >= D.METRO.first && h <= D.METRO.last;
+  }
+  function metroFare(from, to) {
+    const seg = metroCost(from, to);
+    return seg == null ? null : seg * (D.METRO.farePerStop || 0);
+  }
+  function rideMetro(from, to) {
+    const seg = metroCost(from, to);
+    if (seg == null) return { ok: false, msg: '这两站之间不通。' };
+    if (!metroOpen()) return { ok: false, msg: `地铁 ${D.METRO.first}:00 发车，${D.METRO.last}:00 收班。` };
+    const fare = seg * (D.METRO.farePerStop || 0);
+    if (state.ap < seg) return { ok: false, msg: `要 ${seg} 点行动点，不够了。` };
+    if (state.money < fare) return { ok: false, msg: `车票 ${fare}G，钱不够。` };
+    state.ap -= seg;
+    state.money -= fare;
+    log(`坐了 ${seg} 段地铁，车票 ${fare}G。`, 'info');
+    emit(); save();
+    return { ok: true, ap: seg, fare };
+  }
+
+  /* 公交 / 渡船：地铁之外的快速跨区，同样收车票、扣行动点 */
+  function rideTransit(kind, loc) {
+    const cfg = D.TRANSIT[kind];
+    if (!cfg) return { ok: false, msg: '没有这条线。' };
+    const r = cfg.routes.find(x => x.loc === loc);
+    if (!r) return { ok: false, msg: '这趟车不去那儿。' };
+    if (state.ap < r.ap) return { ok: false, msg: `要 ${r.ap} 点行动点，不够了。` };
+    if (state.money < r.fare) return { ok: false, msg: `票价 ${r.fare}G，钱不够。` };
+    state.ap -= r.ap;
+    state.money -= r.fare;
+    log(`搭${kind === 'boat' ? '渡船' : '公交'}去了${r.note}（-${r.ap} AP，${r.fare}G）。`, 'info');
+    emit(); save();
+    return { ok: true, ap: r.ap, fare: r.fare, name: r.note };
+  }
+
   /* ---------------- 三条软失败线 ----------------
    * 设计前提：糖果屋是母亲留下的安全网，永远不会关门。
    * 所以惩罚不能是「活不下去」，只能是「配不上更好的机会」——
@@ -1982,6 +2025,7 @@ window.Engine = (function () {
     wearRate, wearPenalty, maintainCost, maintain,
     licenseDue, licenseDays, creditInfo, creditRoom, settlePayables, canOddJob, oddJob,
     retire, retireSummary, retireList, metroAdj, metroDist, metroCost,
+    clockText, metroOpen, metroFare, rideMetro, rideTransit,
     sensitiveGoods, hasGear, gearInfo, buyGear, securityCheck,
     regionAt, cargoKeys, rollRoadEvent, applyRoadEvent,
     takeoutState, takeoutUnlocked, takeoutHas, openTakeout,

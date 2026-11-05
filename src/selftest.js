@@ -1394,6 +1394,29 @@
     const missed = E.settleTakeout();
     ok('没雇人时漏单会记下来', missed.expired === 1 && tk.orders.length === 0);
 
+    /* ================= 交通：地铁票价 / 首末班 / 公交渡船 ================= */
+    E.startPhase(0);                        // 05:00 早起准备
+    ok('05:00 站台还没开门', !E.metroOpen());
+    E.startPhase(1);                        // 07:00 早间配送
+    ok('07:00 地铁在运营', E.metroOpen());
+    const seg = E.metroCost('metro_snail', 'metro_island');
+    const fare = E.metroFare('metro_snail', 'metro_island');
+    ok('地铁票价按段收', seg > 0 && fare === seg * D.METRO.farePerStop, `${seg} 段 / ${fare}G`);
+    E.state.money = 500; E.state.ap = 14;
+    const ride = E.rideMetro('metro_snail', 'metro_island');
+    ok('坐地铁同时扣 AP 和车票', ride.ok && E.state.ap === 14 - seg && E.state.money === 500 - fare);
+    E.state.money = 0;
+    ok('钱不够买不了车票', !E.rideMetro('metro_snail', 'metro_old').ok);
+    E.startPhase(0);
+    ok('非运营时段坐不了地铁', !E.rideMetro('metro_snail', 'metro_old').ok);
+    E.startPhase(1);
+    E.state.money = 500; E.state.ap = 14;
+    const bus = E.rideTransit('bus', 'metro_old');
+    ok('公交按路线扣 AP 与票价', bus.ok && E.state.ap === 14 - D.TRANSIT.bus.routes[0].ap);
+    const boat = E.rideTransit('boat', 'metro_island');
+    ok('渡船能跨海到新岛', boat.ok && boat.name === '新岛站');
+    ok('公交不去没开的地方', !E.rideTransit('bus', 'market').ok);
+
     panel();
   }
 

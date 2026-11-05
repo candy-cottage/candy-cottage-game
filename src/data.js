@@ -711,6 +711,11 @@ window.GameData = (function () {
 
   /* ---------- 地铁线路 ---------- */
   const METRO = {
+    /* 车票按段收，运营时间按当前阶段的起始钟点判断（首班 06:00 / 末班 23:00）。
+       早起准备是 05:00，那会儿站台还没开门。 */
+    farePerStop: 6,
+    first: 6,
+    last: 23,
     stations: {
       metro_dock: { name: '码头站', lines: ['1'] },
       metro_old: { name: '旧城中心站', lines: ['1', '2', '3'] },
@@ -734,10 +739,37 @@ window.GameData = (function () {
     }
   };
 
+  /* ---------- 公交 / 渡船 ----------
+   * 地铁之外的两条快速跨区路：公交便宜、只到几个站；渡船贵，但能直接跨海到新岛。
+   * 出发点写成 id，是为了让地点菜单能直接挂上入口。 */
+  const TRANSIT = {
+    bus: {
+      from: 'busstop',
+      name: '公交总站',
+      title: '公交 · 跨区电车',
+      desc: '蓝白电车按站停，比骑车省行动点。货箱太大上不去，只带人。',
+      routes: [
+        { loc: 'metro_old', ap: 2, fare: 12, note: '旧城中心站' },
+        { loc: 'metro_ind', ap: 3, fare: 18, note: '城南站' },
+        { loc: 'metro_acad', ap: 4, fare: 24, note: '学院站' }
+      ]
+    },
+    boat: {
+      from: 'pier',
+      name: '渔船码头',
+      title: '渡船 · 跨海',
+      desc: '船老大的小艇不走跨海大桥，比骑车快，也比大桥贵。',
+      routes: [
+        { loc: 'metro_island', ap: 3, fare: 45, note: '新岛站' },
+        { loc: 'metro_dock', ap: 1, fare: 8, note: '码头站' }
+      ]
+    }
+  };
+
   return {
     TILE, WORLD, REGIONS, ROADS, LOCATIONS, RAW, PRODUCTS, VEHICLES,
     PHASES, CUSTOMERS, DIALOGS, SHOPS, METRO, TUNE, DELIVER_LOCS, DEMAND,
     COSTS, CRED, RANKS, SHOP_UPGRADES, APPRENTICES, LINES, SECURITY, TUTORIAL, PURCHASE,
-    ROAD_EVENTS, TAKEOUT
+    ROAD_EVENTS, TAKEOUT, TRANSIT
   };
 })();

@@ -2051,6 +2051,8 @@ window.UI = (function () {
     if (loc.id === 'fruitstand' || loc.id === 'market') acts.push({ id: 'shop', name: '采购原料', desc: '' });
     if (loc.kind === 'metro') acts.push({ id: 'metro', name: '乘坐地铁', desc: '快速移动到其他站' });
     if (loc.id === 'garage' || loc.id === 'shipyard') acts.push({ id: 'garage', name: '看看载具', desc: '买车或换车' });
+    if (loc.id === 'busstop') acts.push({ id: 'transit-bus', name: '坐公交跨区', desc: '省行动点 · 收车票' });
+    if (loc.id === 'pier') acts.push({ id: 'transit-boat', name: '搭渡船过海', desc: '比跨海大桥快，也更贵' });
     if (loc.id === 'shop') acts.push({ id: 'inside', name: '回店里歇一会儿', desc: '元气 +6 · 花 1 行动点，之后还能再出门' });
     if (dialogFor(loc.id)) acts.push({ id: 'talk', name: '说说话 / 看看', desc: '' });
     if (loc.id === 'bookstore') acts.push({ id: 'book', name: '翻翻配方书', desc: '花 120G 学点新东西' });
@@ -2104,8 +2106,9 @@ window.UI = (function () {
   function openMetroModal(locId) {
     const S = E.state;
     const start = locId;
-    /* 段数交给引擎算（无向 BFS），界面只负责画 */
+    /* 段数交给引擎算（无向 BFS），票价与运营时间也在引擎里 */
     const dist = E.metroDist(start);
+    const open = E.metroOpen();
 
     /* 安检：随身带的是「这趟已装载订单里的成品」。含烈酒 / 魔法糖浆的过不去。 */
     const carried = [];
@@ -2120,22 +2123,51 @@ window.UI = (function () {
 
     const opts = Object.keys(dist).filter(k => k !== start).map(k => {
       const seg = dist[k];
-      const cost = seg * 1;
+      const fare = E.metroFare(start, k);
       const stopped = k === D.SECURITY.station && sec.blocked;
-      return `<button class="action" data-act="metro-go" data-loc="${k}" data-cost="${cost}" ${(S.ap < cost || stopped) ? 'disabled' : ''}>
-        <div class="action-name">${D.METRO.stations[k].name}<span class="action-cost">${stopped ? '安检' : cost + ' AP'}</span></div>
-        <div class="action-desc">${seg} 站 · ${D.METRO.stations[k].lines.map(l => l + '号线').join(' / ')}${stopped ? ' · <span class="metro-guard">行李过不去</span>' : ''}</div>
+      const noAp = S.ap < seg, noCash = S.money < fare;
+      const off = !open || stopped || noAp || noCash;
+      const why = stopped ? ' · <span class="metro-guard">行李过不去</span>'
+        : !open ? ' · 还没发车'
+          : noAp ? ' · 行动点不够' : noCash ? ' · 钱不够' : '';
+      return `<button class="action" data-act="metro-go" data-loc="${k}" data-from="${start}"
+        data-cost="${seg}" ${off ? 'disabled' : ''}>
+        <div class="action-name">${D.METRO.stations[k].name}<span class="action-cost">${stopped ? '安检' : seg + ' AP · ' + fare + 'G'}</span></div>
+        <div class="action-desc">${seg} 站 · ${D.METRO.stations[k].lines.map(l => l + '号线').join(' / ')}${why}</div>
       </button>`;
     }).join('');
 
     openModal({
       title: '地铁 · 线路图',
-      sub: `首班 06:00 · 末班 23:00`,
+      sub: `现在 ${E.clockText()} · 首班 06:00 / 末班 23:00 · ${open ? '运营中' : '已收班'}`,
       body: () => `<div style="font-size:11.5px;color:#6d5a76;margin-bottom:12px;">
-        坐地铁比自己骑快得多，但有些地方到不了——北山没有规划线路。</div>
+        坐地铁比自己骑快得多：每段扣 1 点行动点，另收 ${D.METRO.farePerStop}G 车票。北山没有规划线路。</div>
         ${guardNote}
+        ${open ? '' : '<div class="metro-note">站台卷帘门还拉着，等天亮再来。</div>'}
         <div class="action-list">${opts}</div>`,
       footer: `<button class="btn btn-ghost" data-act="close-modal">离开</button>`
+    });
+  }
+
+  /* 公交 / 渡船：和地铁是同一套「选目的地 → 扣 AP + 车票 → 传送」 */
+  function openTransitModal(kind) {
+    const cfg = D.TRANSIT[kind];
+    if (!cfg) return;
+    const S = E.state;
+    const opts = cfg.routes.map(r => {
+      const off = S.ap < r.ap || S.money < r.fare;
+      const why = S.ap < r.ap ? '行动点不够' : (S.money < r.fare ? '钱不够' : `到 ${locName(r.loc)}`);
+      return `<button class="action" data-act="transit-go" data-kind="${kind}" data-loc="${r.loc}" ${off ? 'disabled' : ''}>
+        <div class="action-name">${r.note}<span class="action-cost">${r.ap} AP · ${r.fare}G</span></div>
+        <div class="action-desc">${why}</div>
+      </button>`;
+    }).join('');
+    openModal({
+      title: cfg.title,
+      sub: `现在 ${E.clockText()} · 现金 ${money(S.money)}G`,
+      body: `<div style="font-size:11.5px;color:#6d5a76;margin-bottom:12px;">${esc(cfg.desc)}</div>
+        <div class="action-list">${opts}</div>`,
+      footer: `<button class="btn btn-ghost" data-act="close-modal">不坐了</button>`
     });
   }
 
@@ -2881,14 +2913,23 @@ window.UI = (function () {
           const chk = E.securityCheck(carry);
           if (chk.blocked) { toast(`安检拦下了：${chk.names.join('、')}`, 'bad'); break; }
         }
-        const cost = +t.dataset.cost;
-        if (E.useAP(cost)) {
-          const loc = t.dataset.loc;
-          closeModal();
-          window.MapView.teleport(loc);
-          toast(`到达 ${locName(loc)}`, 'good');
-          updateMapBars();
-        } else toast('行动点不够。', 'bad');
+        const r = E.rideMetro(t.dataset.from || 'metro_snail', t.dataset.loc);
+        if (!r.ok) { toast(r.msg, 'bad'); break; }
+        const loc = t.dataset.loc;
+        closeModal();
+        window.MapView.teleport(loc);
+        toast(`到达 ${locName(loc)} · 车票 ${r.fare}G`, 'good');
+        updateMapBars();
+        break;
+      }
+
+      case 'transit-go': {
+        const r = E.rideTransit(t.dataset.kind, t.dataset.loc);
+        if (!r.ok) { toast(r.msg, 'bad'); break; }
+        closeModal();
+        window.MapView.teleport(t.dataset.loc);
+        toast(`到达 ${r.name} · ${r.fare}G`, 'good');
+        updateMapBars();
         break;
       }
 
@@ -3422,6 +3463,8 @@ window.UI = (function () {
     closeModal();
     if (id === 'shop') openShopModal(locId);
     else if (id === 'metro') openMetroModal(locId);
+    else if (id === 'transit-bus') openTransitModal('bus');
+    else if (id === 'transit-boat') openTransitModal('boat');
     else if (id === 'garage') openGarageModal();
     else if (id === 'book') {
       if (E.state.money < 120) { toast('钱不够。', 'bad'); return; }

@@ -18,6 +18,7 @@ window.UI = (function () {
      也让「取消装货」能老老实实停在店里，而不是把整个阶段跳过去。 */
   let wentOutThisPhase = false;
   let roadEventOpen = false;   // 路上事件弹窗开着时别再掷第二次
+  let battleOpen = false;      // 战斗没打完时，ESC 不能把弹窗关掉
   let storyState = null;
   let modalCloser = null;
 
@@ -80,7 +81,11 @@ window.UI = (function () {
 
     document.addEventListener('click', onClick);
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !$('modal-root').classList.contains('hidden')) { closeModal(); return; }
+      if (e.key === 'Escape' && !$('modal-root').classList.contains('hidden')) {
+        // 冲突没分出结果就别想装作没发生：战斗弹窗只能打完再收
+        if (battleOpen && E.state.battle && !E.state.battle.over) return;
+        closeModal(); return;
+      }
       // Ctrl/⌘ + S：随时开存档面板（顺手压掉浏览器的「保存网页」）
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -289,6 +294,12 @@ window.UI = (function () {
     maybePhoto();
     maybeEvan();
     maybeLetter();
+    /* 半途读档：冲突没打完，先把弹窗摆回来，别让人白白挨一顿 */
+    const pendingBattle = E.state.battle;
+    if (pendingBattle && !battleOpen) {
+      const foe = pendingBattle.enemy;
+      setTimeout(() => { if (E.state.battle && !battleOpen) openBattle(foe); }, 320);
+    }
   }
 
   /* ================= 后场面板 ================= */
@@ -1179,7 +1190,18 @@ window.UI = (function () {
       </div>`;
     }).join('') + `<div style="font-size:10.5px;color:#a493ae;margin-top:10px;line-height:1.8;">
       配送阶段开始前，需要在出货单里挑选本次要送的订单——运力装不下的，只能留到下一趟。
-    </div>` + modCard() + tunnelCard();
+    </div>` + modCard() + tunnelCard() + combatCard();
+  }
+
+  /* 战绩卡：街上的冲突不是刷怪，只留一笔账 */
+  function combatCard() {
+    const c = E.combatStats();
+    return `<div class="card-title" style="margin-top:16px">街上的冲突</div>
+      <div class="tunnel-card">
+        <div class="tunnel-head">胜 ${c.wins} · 负 ${c.losses} · 脱身 ${c.fled}</div>
+        <div class="shop-tip">送货路上有人拦车，可以把车横过来。糖砸出去能砸晕一回合，也能自己吃掉回气；
+          打完按伤势折元气，输了会丢钱、掉信誉、少一盒糖。不想打就掉头跑。</div>
+      </div>`;
   }
 
   /* 管网图：出口线索常驻在车库页，免得玩家不知道去哪儿「记井盖」 */
@@ -1993,11 +2015,103 @@ window.UI = (function () {
           toast(r.text, r.good ? 'good' : '');
           renderHUD();
           updateMapBars();
+          if (r.battle) setTimeout(() => openBattle(r.battle), 80);
+          else if (r.tunnel && D.TUNNELS.nodes[r.tunnel]) {
+            toast(`管网图新添一处：${D.TUNNELS.nodes[r.tunnel].name}`, 'good');
+          }
         });
       },
       onClose: () => {
         roadEventOpen = false;
         window.MapView.setPaused(false);
+      }
+    });
+  }
+
+  /* ================= 回合制战斗 =================
+   * 弹窗自己重绘 body，引擎只管回合结算。打完留一页结果，点「收起」才清场。 */
+  function battleBar(v, max, cls) {
+    const pct = Math.max(0, Math.min(100, (v / max) * 100));
+    return `<div class="bt-bar ${cls}"><i style="width:${pct}%"></i><span>${Math.max(0, Math.round(v))} / ${max}</span></div>`;
+  }
+
+  function battleBody() {
+    const b = E.state.battle;
+    if (!b) return '<div class="empty">这场架已经散了。</div>';
+    const en = D.COMBAT.enemies[b.enemy] || { name: '？' };
+    const lines = b.lines.slice(-4).map(s => `<div class="bt-line">${esc(s)}</div>`).join('');
+    const foes = `<div class="bt-foes">
+        <div class="bt-side"><div class="bt-name">${esc(en.name)}</div>${battleBar(b.ehp, b.eMaxHp, 'foe')}</div>
+        <div class="bt-vs">VS</div>
+        <div class="bt-side"><div class="bt-name">米莉 <small>元气 ${Math.round(E.state.energy)}</small></div>${battleBar(b.hp, b.maxHp, 'hero')}</div>
+      </div>`;
+    if (b.over) {
+      return `<div class="battle">
+        ${foes}
+        <div class="bt-log">${lines}</div>
+        <div class="bt-result ${b.win ? 'win' : 'lose'}">${esc(b.text)}</div>
+        <button class="btn btn-primary bt-close" data-act="battle-close">${b.win ? '收起战利品' : '回店里歇歇'}</button>
+      </div>`;
+    }
+    const est = Math.max(1, D.COMBAT.atkBase + Math.floor(E.state.energy / D.COMBAT.atkEnergyDiv) - en.def);
+    const moves = [
+      { id: 'attack', name: '抡过去', hint: `约 ${est} 点伤害` },
+      { id: 'guard', name: '架住', hint: '本回合减伤六成 · 回 2' },
+      { id: 'candy', name: '扔一盒糖', hint: '砸晕一回合 · 成品 -1' },
+      { id: 'eat', name: '吃一颗糖', hint: '回 12 气力 · 元气 +6 · 成品 -1' },
+      { id: 'flee', name: '掉头就跑', hint: '五成机会脱身 · 失败照挨一下' }
+    ];
+    return `<div class="battle">
+      ${foes}
+      <div class="bt-log">${lines}</div>
+      <div class="bt-moves">${moves.map(m => `<button class="btn bt-move" data-act="battle-act" data-move="${m.id}">
+        <b>${m.name}</b><span>${esc(m.hint)}</span></button>`).join('')}</div>
+      <div class="rp-foot">第 ${b.turn} 回合 · 选一个做法</div>
+    </div>`;
+  }
+
+  function openBattle(enemyId) {
+    if (!E.state.battle) {
+      const r = E.startBattle(enemyId);
+      if (!r.ok) { toast(r.msg, 'bad'); return; }
+    }
+    const b0 = E.state.battle;
+    const en = D.COMBAT.enemies[b0.enemy] || { name: '？' };
+    battleOpen = true;
+    if (view === 'map' && window.MapView.isRunning()) window.MapView.setPaused(true);
+    openModal({
+      title: '起冲突了',
+      sub: `${en.name} · 第 ${b0.turn} 回合`,
+      body: () => battleBody(),
+      onMount: root => {
+        const x = root.querySelector('.x');
+        if (x) x.style.display = 'none';
+        root.addEventListener('click', e => {
+          const m = e.target.closest('[data-act="battle-act"]');
+          if (m) {
+            const r = E.battleAct(m.dataset.move);
+            if (!r.ok) { toast(r.msg, 'bad'); return; }
+            const body = root.querySelector('.modal-body');
+            if (body) body.innerHTML = battleBody();
+            const cur = E.state.battle;
+            const sub = root.querySelector('.modal-head .sub');
+            if (sub && cur) sub.textContent = `${en.name} · ${cur.over ? '了结' : '第 ' + cur.turn + ' 回合'}`;
+            renderHUD();
+            return;
+          }
+          if (e.target.closest('[data-act="battle-close"]')) {
+            E.closeBattle();
+            closeModal();
+            renderPanel();
+            if (view === 'map') updateMapBars();
+          }
+        });
+      },
+      onClose: () => {
+        battleOpen = false;
+        if (view === 'map' && window.MapView.isRunning()) window.MapView.setPaused(false);
+        const b = E.state.battle;
+        if (b && b.over) E.closeBattle();   // 结果页被 ESC 关掉也别把记录留着
       }
     });
   }
@@ -3950,6 +4064,7 @@ window.UI = (function () {
     },
     // 测试钩子：直接摊开地下管网图 / 深夜事件 / 战斗（?tunnel、?night、?battle 截图用）
     debugTunnelModal: locId => openTunnelModal(locId || 'backwall'),
+    debugBattle: id => openBattle(id || 'punk'),
     // 测试钩子：把店里塞满客人 / 看看现在谁在等
     forceCustomers: (n, want) => {
       customers = [];

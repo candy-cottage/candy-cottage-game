@@ -42,6 +42,15 @@
     if (em && window.UI && window.UI.debugRoadEvent) {
       setTimeout(() => window.UI.debugRoadEvent(em[1]), 700);
     }
+    // ?battle=<id>：直接开一场冲突；?tunnel=<locId>：直接摊开管网图
+    const bm = q.match(/battle=([a-z_]+)/);
+    if (bm && window.UI && window.UI.debugBattle) {
+      setTimeout(() => window.UI.debugBattle(bm[1]), 700);
+    }
+    const tm = q.match(/tunnel=([a-z_]+)/);
+    if (tm && window.UI && window.UI.debugTunnelModal) {
+      setTimeout(() => window.UI.debugTunnelModal(tm[1]), 700);
+    }
     if (q.indexOf('autostart') >= 0) {
       window.Engine.newGame();
       if (q.indexOf('nostory') < 0 && window.UI.playStory) {

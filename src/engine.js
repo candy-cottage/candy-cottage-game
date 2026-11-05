@@ -1973,13 +1973,10 @@ window.Engine = (function () {
     return ev;
   }
 
-  function applyRoadEvent(id, idx) {
-    const cfg = D.ROAD_EVENTS;
-    const ev = (cfg.list || []).find(e => e.id === id);
-    if (!ev) return { ok: false, text: '那件事已经过去了。' };
-    const ch = ev.choices[idx];
-    if (!ch) return { ok: false, text: '你愣了一下，什么也没做。' };
-    const f = ch.fx || {};
+  /* 路上事件和深夜事件共用同一套「选项效果」结算。
+     除了数值增减，还能把玩家推进一场战斗、探明一个管网出口、或者记成熬夜。 */
+  function applyFx(f, result) {
+    f = f || {};
     let stolen = '';
     if (f.ap) state.ap = clamp(state.ap + f.ap, 0, Math.max(state.apMax || 0, state.ap));
     if (f.energy) state.energy = clamp(state.energy + f.energy, 0, 100);
@@ -1999,11 +1996,189 @@ window.Engine = (function () {
         stolen = '一盒没备着的糖';
       }
     }
-    const text = String(ch.result || '').replace(/\{stolen\}/g, stolen);
-    log(`${ev.title}：${text}`, ch.good ? 'good' : 'info');
-    emit(); save();
-    return { ok: true, text, good: !!ch.good };
+    let tunnel = null;
+    if (f.tunnel) tunnel = discoverTunnel(f.tunnel);
+    if (f.late) state.flags.sleptEarly = false;   // 熬到半夜：次日元气不满
+    const tunnelName = f.tunnel && D.TUNNELS.nodes[f.tunnel] ? D.TUNNELS.nodes[f.tunnel].name : '那个出口';
+    const text = String(result || '')
+      .replace(/\{stolen\}/g, stolen)
+      .replace(/\{tunnel\}/g, tunnelName);
+    return { text, battle: f.battle || null, tunnel: f.tunnel || null, tunnelName };
   }
+
+  function applyRoadEvent(id, idx) {
+    const cfg = D.ROAD_EVENTS;
+    const ev = (cfg.list || []).find(e => e.id === id);
+    if (!ev) return { ok: false, text: '那件事已经过去了。' };
+    const ch = ev.choices[idx];
+    if (!ch) return { ok: false, text: '你愣了一下，什么也没做。' };
+    const out = applyFx(ch.fx, ch.result);
+    log(`${ev.title}：${out.text}`, ch.good ? 'good' : 'info');
+    emit(); save();
+    return { ok: true, text: out.text, good: !!ch.good, battle: out.battle, tunnel: out.tunnel };
+  }
+
+  /* ---------------- 深夜特殊事件 ----------------
+   * 白天跑路靠掷骰，夜里是「打烊之后有人敲门」：只在睡前阶段来一回，
+   * 按天计冷却。和路上事件互不占用次数，也不会在自测页 / ?noevent 下弹出。 */
+  function rollNightEvent() {
+    const cfg = D.NIGHT_EVENTS;
+    if (!cfg || !cfg.list || !cfg.list.length) return null;
+    if (!phase() || phase().id !== 'night') return null;
+    if (!state.nightEvent || typeof state.nightEvent !== 'object') {
+      state.nightEvent = { key: '', count: 0 };
+    }
+    const key = String(state.day);
+    if (state.nightEvent.key !== key) { state.nightEvent.key = key; state.nightEvent.count = 0; }
+    if (state.nightEvent.count >= (cfg.maxPerNight || 1)) return null;
+    if (Math.random() > (cfg.chance || 0)) return null;
+    const pool = cfg.list.filter(e => !e.minDay || state.day >= e.minDay);
+    if (!pool.length) return null;
+    const total = pool.reduce((a, e) => a + (e.w || 1), 0);
+    let r = Math.random() * total;
+    let ev = pool[pool.length - 1];
+    for (const e of pool) { r -= (e.w || 1); if (r <= 0) { ev = e; break; } }
+    state.nightEvent.count++;
+    return ev;
+  }
+
+  function applyNightEvent(id, idx) {
+    const cfg = D.NIGHT_EVENTS || {};
+    const ev = (cfg.list || []).find(e => e.id === id);
+    if (!ev) return { ok: false, text: '门外已经没人了。' };
+    const ch = ev.choices[idx];
+    if (!ch) return { ok: false, text: '你站了一会儿，什么也没发生。' };
+    const out = applyFx(ch.fx, ch.result);
+    log(`${ev.title}：${out.text}`, ch.good ? 'good' : 'info');
+    emit(); save();
+    return { ok: true, text: out.text, good: !!ch.good, battle: out.battle, tunnel: out.tunnel };
+  }
+
+  /* ---------------- 回合制战斗 ----------------
+   * 没有经验值，也没有装备栏：一场冲突从 state.energy 推出血量，
+   * 打完把损耗折回去。糖是唯一的道具——扔出去砸晕一回合，吃掉回气回血。
+   * 战斗对象整个进存档，半途读档能接着打；打完留一页结果，点收起才清掉。 */
+  function combatStats() {
+    if (!state.combat || typeof state.combat !== 'object') state.combat = { wins: 0, losses: 0, fled: 0 };
+    ['wins', 'losses', 'fled'].forEach(k => {
+      if (typeof state.combat[k] !== 'number' || state.combat[k] < 0) state.combat[k] = 0;
+    });
+    return state.combat;
+  }
+  function battleMaxHp() {
+    return Math.round(D.COMBAT.hpBase + state.energy * D.COMBAT.hpPerEnergy);
+  }
+  function startBattle(enemyId) {
+    const C = D.COMBAT, en = C.enemies[enemyId];
+    if (!en) return { ok: false, msg: '这儿没架可打。' };
+    if (state.battle && !state.battle.over) return { ok: false, msg: '眼前这场还没打完。' };
+    const mhp = battleMaxHp();
+    state.battle = {
+      enemy: enemyId, hp: mhp, maxHp: mhp,
+      ehp: en.hp, eMaxHp: en.hp,
+      turn: 1, guard: false, stun: 0, over: false, win: false,
+      text: '', lines: [en.intro]
+    };
+    log(`遇上${en.name}。${en.intro}`, 'bad');
+    emit(); save();
+    return { ok: true };
+  }
+  function battlePush(b, s) { b.lines.push(s); if (b.lines.length > 6) b.lines.shift(); }
+
+  function finishBattle(win, b) {
+    const C = D.COMBAT, en = C.enemies[b.enemy];
+    const lost = b.maxHp - b.hp;
+    state.energy = clamp(state.energy - lost * C.hpToEnergy, 0, 100);
+    b.over = true;
+    b.win = win;
+    if (win) {
+      const rw = en.reward || {};
+      if (rw.money) state.money += rw.money;
+      if (rw.rep) state.reputation = clamp(state.reputation + rw.rep, 0, 100);
+      if (rw.raw) Object.keys(rw.raw).forEach(k => addInv(k, rw.raw[k]));
+      if (rw.cred) Object.keys(rw.cred).forEach(k => bumpCred(k, rw.cred[k]));
+      combatStats().wins++;
+      b.text = `${en.win} 到手 ${rw.money || 0}G${rw.rep ? `、信誉 +${rw.rep}` : ''}。`;
+      log(`打赢了${en.name}：${b.text}`, 'good');
+    } else {
+      state.money -= C.loseMoney;
+      state.reputation = clamp(state.reputation - C.loseRep, 0, 100);
+      const keys = cargoKeys();
+      if (keys.length) addStock(pick(keys), -1);
+      combatStats().losses++;
+      b.text = `${en.lose} 丢了 ${C.loseMoney}G、信誉 -${C.loseRep}，元气按伤势折了 ${Math.round(lost * C.hpToEnergy)} 点。`;
+      log(`没打过${en.name}：${b.text}`, 'bad');
+    }
+    battlePush(b, b.text);
+  }
+
+  function battleAct(move) {
+    const b = state.battle;
+    if (!b || b.over) return { ok: false, msg: '这场已经结束了。' };
+    const C = D.COMBAT, en = C.enemies[b.enemy];
+    b.guard = false;
+
+    if (move === 'attack') {
+      const dmg = Math.max(1, C.atkBase + Math.floor(state.energy / C.atkEnergyDiv)
+        + rand(C.atkRand) - en.def);
+      b.ehp = Math.max(0, b.ehp - dmg);
+      battlePush(b, `第 ${b.turn} 回合：你抡过去，${dmg} 点伤害。`);
+    } else if (move === 'guard') {
+      b.guard = true;
+      b.hp = Math.min(b.maxHp, b.hp + C.guardHeal);
+      battlePush(b, `第 ${b.turn} 回合：你架起货箱，缓了口气（+${C.guardHeal}）。`);
+    } else if (move === 'candy' || move === 'eat') {
+      const keys = cargoKeys();
+      if (!keys.length) return { ok: false, msg: '车上一颗糖都没有。' };  // 不白耗一回合
+      const k = keys[0], pname = (D.PRODUCTS[k] || {}).name || '糖';
+      addStock(k, -1);
+      if (move === 'candy') {
+        const dmg = Math.max(1, C.candyBonus + Math.floor(state.energy / C.atkEnergyDiv)
+          + rand(2) - en.def);
+        b.ehp = Math.max(0, b.ehp - dmg);
+        b.stun = 1;
+        battlePush(b, `第 ${b.turn} 回合：一盒${pname}砸过去，${dmg} 点伤害，它愣住了。`);
+      } else {
+        b.hp = Math.min(b.maxHp, b.hp + C.eatHeal);
+        state.energy = clamp(state.energy + C.eatEnergy, 0, 100);
+        battlePush(b, `第 ${b.turn} 回合：就着${pname}喘了口气，回了些气力。`);
+      }
+    } else if (move === 'flee') {
+      if (Math.random() < C.fleeChance) {
+        combatStats().fled++;
+        state.energy = clamp(state.energy - 6, 0, 100);
+        b.over = true; b.win = false;
+        b.text = '你掉头钻进巷子，车链子哗啦响了一路。元气 -6。';
+        battlePush(b, b.text);
+        log(`从${en.name}手底脱身。`, 'info');
+        emit(); save();
+        return { ok: true, over: true, win: false, fled: true };
+      }
+      battlePush(b, `第 ${b.turn} 回合：没跑掉，脚下一滑被堵了回来。`);
+    } else {
+      return { ok: false, msg: '没这个动作。' };
+    }
+
+    if (b.ehp <= 0) {
+      finishBattle(true, b);
+    } else if (b.stun > 0) {
+      b.stun--;
+      battlePush(b, `${en.name}还晕着，这一回合没动。`);
+      b.turn++;
+    } else {
+      const raw = Math.max(1, en.atk + rand(3) - 1);
+      const dmg = Math.max(1, Math.round(raw * (b.guard ? 1 - C.guardCut : 1)));
+      b.hp = Math.max(0, b.hp - dmg);
+      battlePush(b, `${en.taunt} 你挨了 ${dmg} 点${b.guard ? '（架住大半）' : ''}。`);
+      if (b.hp <= 0) finishBattle(false, b);
+      else b.turn++;
+    }
+    emit(); save();
+    return { ok: true, over: b.over, win: b.win };
+  }
+
+  function closeBattle() { state.battle = null; emit(); save(); }
+  function battleInfo() { return state.battle; }
 
   /* ---------------- 存档 ----------------
    * 自动存档（SAVE_KEY）：每次动作后写一份，标题页「继续上次」读它。
@@ -2330,6 +2505,8 @@ window.Engine = (function () {
     tunnelDist, tunnelCost, tunnelTrip, useTunnel,
     sensitiveGoods, hasGear, gearInfo, buyGear, securityCheck,
     regionAt, cargoKeys, rollRoadEvent, applyRoadEvent,
+    rollNightEvent, applyNightEvent,
+    combatStats, battleMaxHp, startBattle, battleAct, closeBattle, battleInfo,
     takeoutState, takeoutUnlocked, takeoutHas, openTakeout,
     rollTakeoutOrders, packTakeout, settleTakeout,
     takeoutOrders: () => takeoutState().orders,

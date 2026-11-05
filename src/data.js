@@ -433,8 +433,85 @@ window.GameData = (function () {
           { label: '送到岗亭', hint: '信誉 +2', fx: { rep: 2 }, result: '值班的记下你的名字，说会替你谢谢失主。', good: true },
           { label: '揣进兜里', hint: '35G · 信誉 -1', fx: { money: 35, rep: -1 }, result: '钱能买两袋面粉。只是那天晚上你没什么胃口。' }
         ]
+      },
+      {
+        id: 'wolf_toll', w: 2, regions: ['industry', 'docks'], minDay: 2,
+        title: '路当中站着人', sub: '影狼组收「过路费」',
+        text: '两个穿黑夹克的把车拦下，领头那个用指节敲货箱：「这条巷子，一个月二十 G。你妈以前也交。」',
+        choices: [
+          { label: '交钱了事', hint: '20G', fx: { money: -20 }, result: '他捏着钱让开半步，临走还说了句「代问好」。' },
+          { label: '掉头绕远路', hint: '行动点 -2 · 元气 -3', fx: { ap: -2, energy: -3 }, result: '你从下一路口拐走，背后传来两声笑。' },
+          { label: '把车横过来', hint: '进入战斗', fx: { battle: 'punk', rep: 1 }, result: '你把货箱扣好，抬眼看着他。' }
+        ]
+      },
+      {
+        id: 'drone_stop', w: 2, regions: ['island', 'oldtown'], minDay: 3,
+        title: '头顶嗡了一声', sub: '议会巡检机',
+        text: '一只巴掌大的白瓷傀儡悬在路中间，红点扫过货箱：「未登记糖类运输，请开箱。」它背后没有人在看。',
+        choices: [
+          { label: '开箱给它扫', hint: '行动点 -1 · 合规 +1', fx: { ap: -1, cred: { compliance: 1 } }, result: '红灯转绿，记了三行字就飞走了。', good: true },
+          { label: '趁它没对焦绕过去', hint: '元气 -5 · 合规 -3', fx: { energy: -5, cred: { compliance: -3 } }, result: '你贴着墙根溜过去，红点在背后追了两秒。' },
+          { label: '一扳手敲下来', hint: '进入战斗', fx: { battle: 'council_drone' }, result: '你从车兜里摸出扳手。' }
+        ]
       }
     ]
+  };
+
+  /* ---------- 回合制战斗 ----------
+   * 不是打怪升级：糖果屋没有「血条」，战斗是一场临时冲突，
+   * 打完把损耗折算成元气，赢的是钱和原料，输的是钱、信誉和一箱糖。
+   * 继续沿用潜入层那套思路——糖既是商品也是工具：
+   * 扔出去能砸晕一回合，吃掉能回气回血。
+   */
+  const COMBAT = {
+    hpBase: 28,
+    hpPerEnergy: 0.22,     // 元气越足，临场越扛得住
+    atkBase: 6,
+    atkEnergyDiv: 28,
+    atkRand: 4,
+    guardCut: 0.6,         // 架住时敌人伤害打四折
+    guardHeal: 2,
+    candyBonus: 5,         // 扔糖的额外伤害，并让敌人愣一回合
+    eatHeal: 12,
+    eatEnergy: 6,
+    fleeChance: 0.55,
+    hpToEnergy: 0.4,       // 打完每掉 1 点血，折 0.4 点元气
+    loseMoney: 60,
+    loseRep: 3,
+    enemies: {
+      punk: {
+        name: '影狼组混混', hp: 20, atk: 4, def: 1,
+        intro: '他把指节捏得咔咔响，货车钥匙在另一只手里晃。',
+        taunt: '「你妈可比你识相。」',
+        win: '他捂着手腕蹲下去，同伴把人拖走了。巷子重新安静下来。',
+        lose: '你被推在货箱上，眼前一黑。醒来时车还锁着，钱袋轻了。',
+        reward: { money: 35, rep: 1, raw: { sugar: 1 } }
+      },
+      wolf_hound: {
+        name: '影狼组的巡夜犬', hp: 28, atk: 6, def: 2,
+        intro: '铁链在地上拖出一道火星，那东西的牙比巷子里的灯还白。',
+        taunt: '它低低地呜了一声，压低了身子。',
+        win: '它夹着尾巴退进黑里，铁链空空地拖走了。',
+        lose: '你被扑倒在纸箱堆上，糖撒了一地。',
+        reward: { money: 60, rep: 2, raw: { sugar: 1, butter: 1 } }
+      },
+      council_drone: {
+        name: '议会巡检傀儡', hp: 22, atk: 5, def: 3,
+        intro: '白瓷外壳合拢，红点对住你的胸口：「请放下工具。」',
+        taunt: '红点一闪，前臂弹出半尺长的电击探针。',
+        win: '外壳裂开，里头掉出一小卷没写满的记录纸，随即冒了股青烟。',
+        lose: '探针抵上肩膀，眼前一白。它记下你的脸，飞走了。',
+        reward: { money: 90, rep: 1, raw: { syrup: 1 }, cred: { compliance: -4 } }
+      },
+      night_stalker: {
+        name: '屋脊上的影子', hp: 34, atk: 7, def: 2,
+        intro: '它不是从巷口来的，是从上面落下来的。看不清脸，只看见一截反光的袖扣。',
+        taunt: '「那十二颗糖，还剩几颗？」',
+        win: '影子翻上屋脊，停了一秒，走了。地上留下一枚凉透的薄荷糖纸。',
+        lose: '你只觉得后颈一凉。醒来时门好好锁着，柜台上的糖少了一盒。',
+        reward: { money: 120, rep: 3, raw: { syrup: 1, honey: 1 } }
+      }
+    }
   };
 
   /* ---------- 外卖平台 ----------
@@ -838,6 +915,6 @@ window.GameData = (function () {
     TILE, WORLD, REGIONS, ROADS, LOCATIONS, RAW, PRODUCTS, VEHICLES,
     PHASES, CUSTOMERS, DIALOGS, SHOPS, METRO, TUNE, DELIVER_LOCS, DEMAND,
     COSTS, CRED, RANKS, SHOP_UPGRADES, APPRENTICES, LINES, SECURITY, TUTORIAL, PURCHASE,
-    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP, TUNNELS
+    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP, TUNNELS, COMBAT
   };
 })();

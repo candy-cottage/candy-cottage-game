@@ -1544,6 +1544,71 @@
     const tclose = $('#modal-root [data-act="close-modal"]');
     if (tclose) tclose.click();
 
+    /* ================= 回合制战斗 ================= */
+    E.closeBattle();
+    E.state.combat = { wins: 0, losses: 0, fled: 0 };
+    E.state.energy = 100;
+    E.state.stock.lollipop = 6;
+    const toll = (D.ROAD_EVENTS.list || []).find(e => e.id === 'wolf_toll');
+    ok('路上有能打起来的拦路事件', !!toll && !!toll.choices.some(c => c.fx && c.fx.battle));
+    const tollR = E.applyRoadEvent('wolf_toll', 2);
+    ok('拦路选项把人推进战斗', tollR.ok && tollR.battle === 'punk', String(tollR.battle));
+
+    const bt0 = E.startBattle('punk');
+    ok('能开一场冲突', bt0.ok && !!E.state.battle && E.state.battle.enemy === 'punk');
+    ok('血量按元气推出来', E.state.battle.maxHp === E.battleMaxHp());
+    ok('同一时间只能打一场', !E.startBattle('punk').ok);
+    const ehp0 = E.state.battle.ehp;
+    E.battleAct('attack');
+    ok('抡过去会掉对方的血', E.state.battle.ehp < ehp0, `${ehp0}→${E.state.battle.ehp}`);
+    E.state.battle.ehp = 200;
+    E.state.battle.eMaxHp = 200;
+    const hpB = E.state.battle.hp;
+    E.battleAct('candy');
+    ok('扔糖砸晕一回合，对方没还手', E.state.battle.hp === hpB, `${hpB}→${E.state.battle.hp}`);
+    const hpE = E.state.battle.hp, enE = E.state.energy, stE = E.stockOf('lollipop');
+    E.battleAct('eat');
+    ok('吃糖回气力并消耗一件成品',
+      E.state.battle.hp >= hpE && E.state.energy >= enE && E.stockOf('lollipop') === stE - 1);
+    E.save(); E.load();
+    ok('没打完的战斗跟着存档走', !!E.state.battle && E.state.battle.enemy === 'punk' && !E.state.battle.over);
+    const rndBak = Math.random;
+    Math.random = () => 0.01;
+    const fled = E.battleAct('flee');
+    Math.random = rndBak;
+    ok('能掉头脱身', fled.ok && fled.fled && E.combatStats().fled === 1);
+    E.closeBattle();
+
+    const cashW = E.state.money;
+    E.startBattle('punk');
+    E.state.battle.ehp = 1;
+    const winR = E.battleAct('attack');
+    ok('打倒对方会结算战利品', winR.over && winR.win && E.state.money > cashW);
+    ok('胜场记进战绩', E.combatStats().wins === 1);
+    E.closeBattle();
+
+    const cashL = E.state.money;
+    E.startBattle('punk');
+    E.state.battle.hp = 1;
+    E.state.battle.ehp = 200;
+    const loseR = E.battleAct('attack');
+    ok('撑不住会按败仗结算', loseR.over && !loseR.win && E.state.money < cashL);
+    ok('败场记进战绩', E.combatStats().losses === 1);
+    E.closeBattle();
+
+    /* 战斗弹窗：五个动作 → 打到出结果 → 收起 */
+    UI.debugBattle('punk');
+    ok('战斗弹窗给出五个做法', $$('#modal-root [data-act="battle-act"]').length === 5,
+      String($$('#modal-root [data-act="battle-act"]').length));
+    E.state.battle.ehp = 1;
+    const atkBtn = $('#modal-root [data-act="battle-act"][data-move="attack"]');
+    if (atkBtn) atkBtn.click();
+    await wait(60);
+    ok('打完出现结果页', $$('#modal-root [data-act="battle-close"]').length === 1);
+    const bc = $('#modal-root [data-act="battle-close"]');
+    if (bc) bc.click();
+    ok('收起结果后战场清空', E.state.battle === null);
+
     panel();
   }
 

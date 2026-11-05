@@ -294,6 +294,7 @@ window.UI = (function () {
     maybePhoto();
     maybeEvan();
     maybeLetter();
+    maybeNightEvent();
     /* 半途读档：冲突没打完，先把弹窗摆回来，别让人白白挨一顿 */
     const pendingBattle = E.state.battle;
     if (pendingBattle && !battleOpen) {
@@ -402,6 +403,13 @@ window.UI = (function () {
       acts.push({ id: 'clean', name: '打扫打烊', cost: 1, desc: '信誉 +2', disabled: S.ap < 1 });
       acts.push({ id: 'account', name: '核对账本', cost: 1, desc: '看看今天的收支', disabled: S.ap < 1 });
       acts.push({ id: 'overtime', name: '再干一会儿', cost: 0, desc: '+2 AP，但明早元气不足', disabled: S.flags.overtimeDay === S.day });
+      const ne = S.nightEvent || {};
+      const nightSpent = ne.key === String(S.day) && ne.count > 0;
+      acts.push({
+        id: 'night-listen', name: '再听一听巷子', cost: 1,
+        desc: nightSpent ? '今晚已经没有动静了' : '留盏灯 · 主动撞上一件夜里的怪事',
+        disabled: S.ap < 1 || nightSpent
+      });
     }
     // 配送阶段中途回家补货/现做之后，还得能再出门——不然剩下的行动点就白扔了
     if (p.kind === 'map') {
@@ -2028,6 +2036,50 @@ window.UI = (function () {
     });
   }
 
+  /* ================= 深夜特殊事件 =================
+   * 睡前打烊之后才来，一晚至多一回。自测页和 ?noevent 下不自动弹，
+   * 免得盖住自动化流程；想看某一条用 ?night=<id>。 */
+  function maybeNightEvent() {
+    if (window.CANDY_TEST_MODE || window.CANDY_NO_EVENTS) return;
+    if (E.phase().id !== 'night' || battleOpen || roadEventOpen) return;
+    const ev = E.rollNightEvent();
+    if (ev) setTimeout(() => openNightEvent(ev), 420);
+  }
+
+  function openNightEvent(ev) {
+    const choices = ev.choices.map((c, i) => `
+      <button class="btn road-pick" data-act="night-pick" data-i="${i}">
+        <span class="rp-label">${esc(c.label)}</span>
+        ${c.hint ? `<span class="rp-hint">${esc(c.hint)}</span>` : ''}
+      </button>`).join('');
+    openModal({
+      title: ev.title,
+      sub: `第 ${E.state.day} 天 · ${ev.sub || '睡前'}`,
+      body: `<div class="road-event night-event">
+        <p class="rp-text">${esc(ev.text)}</p>
+        <div class="rp-choices">${choices}</div>
+        <div class="rp-foot">该睡了。这一夜还有一件事要拿主意。</div>
+      </div>`,
+      onMount: root => {
+        const x = root.querySelector('.x');
+        if (x) x.style.display = 'none';
+        root.addEventListener('click', e => {
+          const b = e.target.closest('[data-act="night-pick"]');
+          if (!b) return;
+          const r = E.applyNightEvent(ev.id, +b.dataset.i);
+          closeModal();
+          toast(r.text, r.good ? 'good' : '');
+          renderHUD();
+          renderPanel();
+          if (r.battle) setTimeout(() => openBattle(r.battle), 80);
+          else if (r.tunnel && D.TUNNELS.nodes[r.tunnel]) {
+            toast(`管网图新添一处：${D.TUNNELS.nodes[r.tunnel].name}`, 'good');
+          }
+        });
+      }
+    });
+  }
+
   /* ================= 回合制战斗 =================
    * 弹窗自己重绘 body，引擎只管回合结算。打完留一页结果，点「收起」才清场。 */
   function battleBar(v, max, cls) {
@@ -3415,6 +3467,12 @@ window.UI = (function () {
       const r = E.overtime();
       toast(r.msg, r.ok ? 'good' : 'bad');
       renderPanel();
+    } else if (id === 'night-listen') {
+      if (!E.useAP(1)) { toast('行动点不够。', 'bad'); return; }
+      const ev = E.rollNightEvent(true);       // 跳过概率，但仍受「一晚至多一回」限制
+      if (ev) openNightEvent(ev);
+      else toast('巷子里安安静静，什么也没有。');
+      renderPanel();
     } else if (id === 'read') {
       if (!E.useAP(1)) { toast('行动点不够。', 'bad'); return; }
       if (Math.random() < 0.45) {
@@ -4065,6 +4123,10 @@ window.UI = (function () {
     // 测试钩子：直接摊开地下管网图 / 深夜事件 / 战斗（?tunnel、?night、?battle 截图用）
     debugTunnelModal: locId => openTunnelModal(locId || 'backwall'),
     debugBattle: id => openBattle(id || 'punk'),
+    debugNightEvent: id => {
+      const ev = (D.NIGHT_EVENTS.list || []).find(e => e.id === id);
+      if (ev) openNightEvent(ev);
+    },
     // 测试钩子：把店里塞满客人 / 看看现在谁在等
     forceCustomers: (n, want) => {
       customers = [];

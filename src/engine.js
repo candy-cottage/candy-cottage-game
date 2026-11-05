@@ -2021,7 +2021,7 @@ window.Engine = (function () {
   /* ---------------- 深夜特殊事件 ----------------
    * 白天跑路靠掷骰，夜里是「打烊之后有人敲门」：只在睡前阶段来一回，
    * 按天计冷却。和路上事件互不占用次数，也不会在自测页 / ?noevent 下弹出。 */
-  function rollNightEvent() {
+  function rollNightEvent(force) {
     const cfg = D.NIGHT_EVENTS;
     if (!cfg || !cfg.list || !cfg.list.length) return null;
     if (!phase() || phase().id !== 'night') return null;
@@ -2031,7 +2031,8 @@ window.Engine = (function () {
     const key = String(state.day);
     if (state.nightEvent.key !== key) { state.nightEvent.key = key; state.nightEvent.count = 0; }
     if (state.nightEvent.count >= (cfg.maxPerNight || 1)) return null;
-    if (Math.random() > (cfg.chance || 0)) return null;
+    /* force 给睡前那个「再听一听」的主动动作：跳过概率，但一晚仍然至多一回 */
+    if (!force && Math.random() > (cfg.chance || 0)) return null;
     const pool = cfg.list.filter(e => !e.minDay || state.day >= e.minDay);
     if (!pool.length) return null;
     const total = pool.reduce((a, e) => a + (e.w || 1), 0);

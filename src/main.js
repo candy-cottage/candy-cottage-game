@@ -51,6 +51,11 @@
     if (tm && window.UI && window.UI.debugTunnelModal) {
       setTimeout(() => window.UI.debugTunnelModal(tm[1]), 700);
     }
+    // ?night=<id>：直接摊开某一条深夜事件
+    const nm = q.match(/night=([a-z_]+)/);
+    if (nm && window.UI && window.UI.debugNightEvent) {
+      setTimeout(() => window.UI.debugNightEvent(nm[1]), 700);
+    }
     if (q.indexOf('autostart') >= 0) {
       window.Engine.newGame();
       if (q.indexOf('nostory') < 0 && window.UI.playStory) {

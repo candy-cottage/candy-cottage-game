@@ -517,6 +517,12 @@ button:disabled { cursor: not-allowed; }
 .rp-hint { font-size: 12px; color: var(--ink-3); }
 .rp-foot { margin-top: 12px; font-size: 12px; color: var(--ink-3); text-align: center; }
 
+/* 深夜事件：同样是浅色底，但换成夜里的淡紫，和白天路上事件区分开 */
+.night-event .rp-text { background: #f5f1fc; border-color: #c9bce0; color: #40364f; }
+.night-event .road-pick { background: #fdfbff; }
+.night-event .road-pick:hover { border-color: #a993cf; background: #f5f1fc; }
+.night-event .rp-foot { color: #7d6b98; }
+
 /* 地下管网 */
 .tunnel-note {
   margin-bottom: 12px; padding: 10px 12px; font-size: 12px; line-height: 1.9;

@@ -1566,10 +1566,16 @@
     const hpB = E.state.battle.hp;
     E.battleAct('candy');
     ok('扔糖砸晕一回合，对方没还手', E.state.battle.hp === hpB, `${hpB}→${E.state.battle.hp}`);
-    const hpE = E.state.battle.hp, enE = E.state.energy, stE = E.stockOf('lollipop');
+    /* 车厢第一件成品是随机的，断言盯总库存；顺手把敌人定住一回合，
+       免得它的随机反击把「吃糖回血」这条量成负数。 */
+    E.state.battle.stun = 1;
+    E.state.battle.hp = Math.max(1, E.state.battle.hp - 10);
+    E.state.energy = 60;
+    const hpE = E.state.battle.hp, enE = E.state.energy, stE = E.totalStockUnits();
     E.battleAct('eat');
     ok('吃糖回气力并消耗一件成品',
-      E.state.battle.hp >= hpE && E.state.energy >= enE && E.stockOf('lollipop') === stE - 1);
+      E.state.battle.hp > hpE && E.state.energy > enE && E.totalStockUnits() === stE - 1,
+      `hp ${hpE}→${E.state.battle.hp} / 元气 ${enE}→${E.state.energy} / 库存 ${stE}→${E.totalStockUnits()}`);
     E.save(); E.load();
     ok('没打完的战斗跟着存档走', !!E.state.battle && E.state.battle.enemy === 'punk' && !E.state.battle.over);
     const rndBak = Math.random;
@@ -1608,6 +1614,51 @@
     const bc = $('#modal-root [data-act="battle-close"]');
     if (bc) bc.click();
     ok('收起结果后战场清空', E.state.battle === null);
+
+    /* ================= 深夜特殊事件 ================= */
+    E.state.nightEvent = { key: '', count: 0 };
+    E.startPhase(0);
+    ok('白天不会冒出深夜事件', E.rollNightEvent(true) === null);
+    E.startPhase(D.PHASES.length - 1);
+    ok('睡前阶段才掷夜里的事件', E.phase().id === 'night');
+    const ne1 = E.rollNightEvent(true);
+    ok('主动去听能撞上一件事', !!ne1 && !!ne1.choices.length, ne1 ? ne1.id : '无');
+    ok('一晚至多一回', E.rollNightEvent(true) === null);
+    ok('八条深夜事件都配了文案与选项', D.NIGHT_EVENTS.list.length === 8
+      && D.NIGHT_EVENTS.list.every(e => e.title && e.text && e.choices.length >= 2));
+
+    E.state.stock.lollipop = 5;          // 免得「成品 -1」在没货时折成 20G，污染现金断言
+    E.state.flags.sleptEarly = true;
+    const cashN = E.state.money;
+    const nr1 = E.applyNightEvent('late_knock', 0);
+    ok('深夜选项真改现金并记成熬夜',
+      nr1.ok && E.state.money === cashN + 120 && E.state.flags.sleptEarly === false,
+      `${cashN}→${E.state.money}`);
+    E.state.flags.sleptEarly = true;
+    const nr2 = E.applyNightEvent('late_knock', 1);
+    ok('早点睡那条不记熬夜', nr2.ok && E.state.flags.sleptEarly === true);
+
+    const seenBefore = E.tunnelSeen().length;
+    const nr3 = E.applyNightEvent('stray_cat', 0);
+    ok('跟着猫能探明管网出口', E.tunnelSeen().indexOf('docks') >= 0
+      && E.tunnelSeen().length === seenBefore + 1);
+    ok('结果文案点名那个出口', nr3.text.indexOf(D.TUNNELS.nodes.docks.name) >= 0, nr3.text);
+    const nr4 = E.applyNightEvent('roof_shadow', 0);
+    ok('屋脊上的影子会开打', nr4.battle === 'night_stalker');
+
+    E.state.nightEvent = { key: String(E.state.day), count: 1 };
+    ok('当天已经遇过就不再来', E.rollNightEvent(true) === null);
+    E.state.day += 1;
+    ok('换一天重新有机会', !!E.rollNightEvent(true));
+    E.state.day -= 1;
+
+    UI.debugNightEvent('late_knock');
+    ok('深夜弹窗列出可选做法', $$('#modal-root [data-act="night-pick"]').length === 2);
+    const np = $('#modal-root [data-act="night-pick"][data-i="0"]');
+    if (np) np.click();
+    await wait(60);
+    ok('选完之后深夜弹窗收起', $$('#modal-root [data-act="night-pick"]').length === 0);
+    ok('深夜弹窗同样会记成熬夜', E.state.flags.sleptEarly === false);
 
     panel();
   }

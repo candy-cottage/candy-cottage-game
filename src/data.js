@@ -911,10 +911,102 @@ window.GameData = (function () {
     }
   };
 
+  /* ---------- 深夜特殊事件 ----------
+   * 白天在路上掷骰，睡前是「打烊之后有人敲门」：只在 night 阶段来，
+   * 一晚至多一回，按天计冷却，不占路上事件的次数。
+   * 代价多落在元气、库存、三条软失败线上——睡前只剩 3 AP，
+   * 不该让玩家为了看一条事件把正事全挤掉。
+   * fx.late 记成熬夜（次日元气不满）；fx.tunnel 探明一处管网出口；
+   * fx.battle 直接把人推进一场冲突；{tunnel} 会替换成那个出口的名字。
+   */
+  const NIGHT_EVENTS = {
+    chance: 0.62,
+    maxPerNight: 1,
+    list: [
+      {
+        id: 'late_knock', w: 3,
+        title: '打烊之后有人敲门', sub: '深夜 · 神秘顾客',
+        text: '门板被敲了三下，不轻不重。玻璃外站着个戴宽檐帽的人，只说要「一盒现在就做好的、适合走远路的糖」。他递进来的钞票比柜台上整天的流水还厚。',
+        choices: [
+          { label: '开门，现装一盒', hint: '120G · 成品 -1 · 熬夜', fx: { money: 120, steal: 1, late: 1, energy: -4 }, result: '他捏着那盒{stolen}掂了掂，没说去哪儿，帽檐压得更低了。', good: true },
+          { label: '隔着门说打烊了', hint: '信誉 -1 · 早点睡', fx: { rep: -1, energy: 4 }, result: '脚步声在巷口停了一会儿，才慢慢走远。' }
+        ]
+      },
+      {
+        id: 'black_market', w: 3, minDay: 2,
+        title: '后门有人卸货', sub: '深夜 · 黑市商人',
+        text: '「别开票，便宜三成。」一个熟人也不算熟的声音从后门传进来，板车上码着砂糖、面粉和黄油，包装上没有厂标。',
+        choices: [
+          { label: '收下这批料', hint: '60G · 砂糖+2 面粉+2 黄油+1 · 合规 -3', fx: { money: -60, raw: { sugar: 2, flour: 2, butter: 1 }, cred: { compliance: -3 } }, result: '货搬进后厨，板车无声地走了。账上少了一笔，也少了一张票。' },
+          { label: '请他去正规铺子', hint: '合规 +2 · 信誉 +1', fx: { cred: { compliance: 2 }, rep: 1 }, result: '他啧了一声，把板车调过头：「你妈当年也没这么较真。」', good: true },
+          { label: '当作没听见', hint: '无变化', fx: {}, result: '你拉上后门的插销，把灯关了。' }
+        ]
+      },
+      {
+        id: 'night_patrol', w: 2, minDay: 2,
+        title: '巷口停了辆白车', sub: '深夜 · 议会夜巡',
+        text: '两个人正挨家核对夜间的营业记录，手电光扫过糖果屋的招牌。领头那个抬头看了看亮着的二楼窗户。',
+        choices: [
+          { label: '下楼出示证件', hint: '合规 +2 · 元气 -3', fx: { cred: { compliance: 2 }, energy: -3 }, result: '记录本上多一行字，他们道了声打扰。', good: true },
+          { label: '塞一盒糖请他们通融', hint: '成品 -1 · 信誉 +1', fx: { steal: 1, rep: 1 }, result: '那盒{stolen}被推回来两次，最后还是收下了。' },
+          { label: '关灯装作没人', hint: '合规 -4 · 元气 -5', fx: { cred: { compliance: -4 }, energy: -5 }, result: '手电在门缝上停了很久。你屏着气，等到引擎声远去。' }
+        ]
+      },
+      {
+        id: 'stray_cat', w: 2,
+        title: '巷口的猫不肯走', sub: '深夜 · 跟一段路',
+        text: '那只三花蹲在井盖上一动不动，看见你出来就往前走两步，再回头等。夜里没有别人，只有远处洗衣店的灯。',
+        choices: [
+          { label: '跟着它走一程', hint: '探明一处管网出口 · 元气 -6 · 熬夜', fx: { tunnel: 'docks', energy: -6, late: 1 }, result: '它把你领到一排被涂改过编号的集装箱前，钻进缝里不见了。你记下了{tunnel}。', good: true },
+          { label: '掰半块糖放地上', hint: '成品 -1 · 元气 +6', fx: { steal: 1, energy: 6, rep: 1 }, result: '{stolen}少了半块。猫吃完，跳上墙头自己走了。', good: true },
+          { label: '关门睡觉', hint: '元气 +4', fx: { energy: 4 }, result: '明早再说明早的事。' }
+        ]
+      },
+      {
+        id: 'roof_shadow', w: 2, minDay: 3,
+        title: '瓦片响了一下', sub: '深夜 · 屋脊上的影子',
+        text: '不是猫。有人踩着对面的屋脊一路过来，在糖果屋上方停住，影子被路灯拉得细长。它像是在数柜台上的糖。',
+        choices: [
+          { label: '抄起扳手上屋顶', hint: '进入战斗', fx: { battle: 'night_stalker' }, result: '你从后门绕上去，梯子吱呀响了一声。' },
+          { label: '朝上扔一颗糖', hint: '成品 -1 · 合规 -2', fx: { steal: 1, cred: { compliance: -2 } }, result: '那盒{stolen}在瓦上滚了两圈，影子没接，也没再往前。' },
+          { label: '把门闩插好，装作睡着', hint: '元气 -4 · 信誉 -1', fx: { energy: -4, rep: -1 }, result: '你睁着眼躺到天快亮。屋顶什么时候空的，没听见。' }
+        ]
+      },
+      {
+        id: 'letter_under_door', w: 2,
+        title: '门缝里滑进来一封信', sub: '深夜 · 没有落款',
+        text: '牛皮纸信封，没有寄件人，里面只有一张对折的纸条和几张折得很整齐的钞票。字迹你认得，但想不起在哪儿见过。',
+        choices: [
+          { label: '就着灯拆开', hint: '80G · 熬夜 · 信誉 -1', fx: { money: 80, late: 1, rep: -1 }, result: '纸条上只有一行：「别让他们数完十二颗。」你把钱压在账本底下。' },
+          { label: '原样收进抽屉', hint: '信誉 +1 · 早点睡', fx: { rep: 1, energy: 3 }, result: '有些信不拆也是一种回答。', good: true }
+        ]
+      },
+      {
+        id: 'oven_warm', w: 2,
+        title: '炉子还热着', sub: '深夜 · 再烤一炉',
+        text: '熄了灯才想起来，烤炉的余温还能撑一盘。明早第一批客人总问同一句话：「有没有刚出炉的？」',
+        choices: [
+          { label: '趁热再做两盒', hint: '棒棒糖 +2 · 6G 水电 · 元气 -8 · 熬夜', fx: { stock: { lollipop: 2 }, money: -6, energy: -8, late: 1 }, result: '两盒棒棒糖晾在架子上，屋里全是焦糖味。', good: true },
+          { label: '明天早起也一样', hint: '元气 +5', fx: { energy: 5 }, result: '你拍了拍炉门，上楼去了。' }
+        ]
+      },
+      {
+        id: 'tunnel_rumble', w: 2, minDay: 2,
+        title: '井盖底下有动静', sub: '深夜 · 旧管网',
+        text: '后院那块青石板底下传来闷闷的一声，像有人拿铁器敲了敲管道，又像只是水在回流。母亲那半张图上，这里画着一个圈。',
+        choices: [
+          { label: '掀开看看', hint: '进入战斗', fx: { battle: 'wolf_hound', energy: -3 }, result: '铁盖刚挪开一条缝，底下就窜出一道链子的响声。' },
+          { label: '顺着声音把位置记下来', hint: '探明一处管网出口 · 元气 -3', fx: { tunnel: 'industry', energy: -3 }, result: '你趴在地上听了半刻钟，记下{tunnel}。', good: true },
+          { label: '把石板压回去', hint: '元气 +3', fx: { energy: 3 }, result: '有些声音，白天再听也来得及。' }
+        ]
+      }
+    ]
+  };
+
   return {
     TILE, WORLD, REGIONS, ROADS, LOCATIONS, RAW, PRODUCTS, VEHICLES,
     PHASES, CUSTOMERS, DIALOGS, SHOPS, METRO, TUNE, DELIVER_LOCS, DEMAND,
     COSTS, CRED, RANKS, SHOP_UPGRADES, APPRENTICES, LINES, SECURITY, TUTORIAL, PURCHASE,
-    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP, TUNNELS, COMBAT
+    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP, TUNNELS, COMBAT, NIGHT_EVENTS
   };
 })();

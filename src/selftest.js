@@ -1515,6 +1515,35 @@
     const recTired = E.nightRecovery();
     ok('熬夜又没午睡，第二天更累', recTired.energy < 78, String(recTired.energy));
 
+    /* ================= 地下管网 ================= */
+    E.state.tunnels = { seen: ['snail'], uses: 0, last: null };
+    E.state.ap = 20;
+    E.state.energy = 100;
+    ok('默认只探明家门口的井盖', E.tunnelSeen().length === 1 && E.tunnelSeen()[0] === 'snail');
+    ok('没探明的出口去不了', !E.useTunnel('snail', 'oldtown').ok);
+    ok('走到广场能记下井盖', E.discoverTunnel('oldtown').ok);
+    ok('同一个井盖不重复记', !E.discoverTunnel('oldtown').ok);
+    ok('广场与蜗牛巷只隔一段', E.tunnelCost('snail', 'oldtown') === 1);
+    const cashT = E.state.money, apT = E.state.ap, enT = E.state.energy;
+    const tu = E.useTunnel('snail', 'oldtown');
+    ok('下井扣行动点', tu.ok && E.state.ap === apT - tu.ap, `${apT}→${E.state.ap}`);
+    ok('下井改收元气', E.state.energy === enT - tu.energy, `${enT}→${E.state.energy}`);
+    ok('管网不收车票', E.state.money === cashT);
+    ok('通行次数与动线记进图里', E.state.tunnels.uses === 1 && E.state.tunnels.last.to === 'oldtown');
+    ok('远的出口段数更多', E.tunnelCost('snail', 'island') > 1);
+    ok('不存在的节点和未探明的出口都被拒',
+      !E.useTunnel('snail', 'nope').ok && !E.useTunnel('snail', 'hill').ok);
+    const seenN = E.tunnelSeen().length;
+    E.save(); E.load();
+    ok('探明的出口跟着存档走', E.tunnelSeen().length === seenN && E.tunnelSeen().indexOf('oldtown') >= 0);
+    UI.debugTunnelModal('backwall');
+    ok('管网图列出所有出口', $$('#modal-root [data-act="tunnel-go"]').length === Object.keys(D.TUNNELS.nodes).length - 1);
+    const tgo = $('#modal-root [data-act="tunnel-go"][data-to="oldtown"]');
+    const tgh = $('#modal-root [data-act="tunnel-go"][data-to="hill"]');
+    ok('探明的出口能点、没探明的灰着', !!tgo && !tgo.disabled && !!tgh && tgh.disabled);
+    const tclose = $('#modal-root [data-act="close-modal"]');
+    if (tclose) tclose.click();
+
     panel();
   }
 

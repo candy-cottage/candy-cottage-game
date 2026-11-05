@@ -799,10 +799,45 @@ window.GameData = (function () {
     }
   };
 
+  /* ---------- 地下管网 ----------
+   * 母亲留下的旧笔记里夹着半张管网图：新都地下有七个大结构，连成闭环。
+   * 和地铁的差别是「不查证件」——含烈酒 / 魔法糖浆的货坐不了地铁，
+   * 却能从井盖下面走。代价是不收钱、收元气（爬梯子、摸黑、绕路）。
+   *
+   * 出口得先「探明」：走到那个地点按 E，在菜单里记下井盖位置，
+   * 之后才能从任意已探明的井盖直接过去。路径允许穿过没探明的节点
+   * （管网本来就是通的，你只是不知道那个出口在哪儿）。
+   * links 必须双向都写，和 METRO.graph 一个规矩。
+   */
+  const TUNNELS = {
+    entryAp: 1,          // 掀井盖、下梯子固定花 1 AP
+    apPerHop: 1,         // 每穿过一个结构再花 1 AP
+    energyPerHop: 2,     // 不收钱，收元气
+    desc: '旧管网不走安检，含烈酒和魔法糖浆的货也能带。出口要先自己找到。',
+    nodes: {
+      snail:    { name: '蜗牛巷 · 后院井盖', loc: 'backwall',   clue: '翻过后院矮墙，青石板底下' },
+      oldtown:  { name: '旧城 · 干喷泉',     loc: 'plaza',      clue: '中央广场那座干了半年的喷泉' },
+      industry: { name: '城南 · 地道口',     loc: 'tunnel_sc',  clue: '废弃仓库旁的锈铁栅栏后面' },
+      docks:    { name: '码头 · 集装箱区',   loc: 'containers', clue: '编号被涂改的那排箱子背后' },
+      academy:  { name: '学院 · 钟楼地窖',   loc: 'academy',    clue: '钟楼背后的检修口' },
+      island:   { name: '新岛 · 拍卖会后台', loc: 'auction',    clue: '「仓库出租」招牌下的货梯' },
+      hill:     { name: '北山 · 教堂地窖',   loc: 'church',     clue: '旧教堂碎了一角的彩色玻璃下面' }
+    },
+    links: {
+      snail:    ['oldtown', 'industry'],
+      oldtown:  ['snail', 'industry', 'docks', 'hill', 'academy'],
+      industry: ['snail', 'oldtown', 'academy'],
+      docks:    ['oldtown', 'island'],
+      island:   ['docks', 'academy'],
+      academy:  ['oldtown', 'industry', 'island'],
+      hill:     ['oldtown']
+    }
+  };
+
   return {
     TILE, WORLD, REGIONS, ROADS, LOCATIONS, RAW, PRODUCTS, VEHICLES,
     PHASES, CUSTOMERS, DIALOGS, SHOPS, METRO, TUNE, DELIVER_LOCS, DEMAND,
     COSTS, CRED, RANKS, SHOP_UPGRADES, APPRENTICES, LINES, SECURITY, TUTORIAL, PURCHASE,
-    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP
+    ROAD_EVENTS, TAKEOUT, TRANSIT, VEHICLE_MODS, BASES, PICKUP, TUNNELS
   };
 })();

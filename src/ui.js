@@ -1179,7 +1179,28 @@ window.UI = (function () {
       </div>`;
     }).join('') + `<div style="font-size:10.5px;color:#a493ae;margin-top:10px;line-height:1.8;">
       配送阶段开始前，需要在出货单里挑选本次要送的订单——运力装不下的，只能留到下一趟。
-    </div>` + modCard();
+    </div>` + modCard() + tunnelCard();
+  }
+
+  /* 管网图：出口线索常驻在车库页，免得玩家不知道去哪儿「记井盖」 */
+  function tunnelCard() {
+    const seen = E.tunnelSeen();
+    const all = E.tunnelNodeIds();
+    const rows = all.map(k => {
+      const n = D.TUNNELS.nodes[k];
+      const known = seen.indexOf(k) >= 0;
+      return `<div class="tunnel-row ${known ? 'on' : ''}">
+        <b>${known ? esc(n.name) : '？？？'}</b>
+        <span>${known ? '已探明' : esc(n.clue)}</span>
+      </div>`;
+    }).join('');
+    return `<div class="card-title" style="margin-top:16px">地下管网 · 旧图</div>
+      <div class="tunnel-card">
+        <div class="tunnel-head">已探明 ${seen.length}/${all.length} 处 · 累计通过 ${(E.state.tunnels || {}).uses || 0} 回</div>
+        ${rows}
+        <div class="shop-tip">走到对应地点按 E，「记下这个井盖」；之后从任意已探明的井盖下井就能直达。
+          不查证件，敏感货也过得去，代价是元气。</div>
+      </div>`;
   }
 
   function tabLog() {
@@ -2146,6 +2167,15 @@ window.UI = (function () {
     if (loc.id === 'shop') acts.push({ id: 'inside', name: '回店里歇一会儿', desc: '元气 +6 · 花 1 行动点，之后还能再出门' });
     if (dialogFor(loc.id)) acts.push({ id: 'talk', name: '说说话 / 看看', desc: '' });
     if (loc.id === 'bookstore') acts.push({ id: 'book', name: '翻翻配方书', desc: '花 120G 学点新东西' });
+    /* 地下管网：先「记下井盖」，之后才谈得上从这儿下井 */
+    const tnId = E.tunnelEntryOf(loc.id);
+    if (tnId) {
+      if (E.tunnelSeen().indexOf(tnId) < 0) {
+        acts.push({ id: 'tunnel-note', name: '记下这个井盖', desc: '管网图又多一个出口 · 不花行动点' });
+      } else {
+        acts.push({ id: 'tunnel', name: '钻地下管网', desc: '不查证件 · 省行动点 · 费元气' });
+      }
+    }
 
     const body = `<div style="font-size:12.5px;line-height:1.9;color:#4a3b52;margin-bottom:14px;">${esc(loc.desc)}</div>
       <div class="action-list">
@@ -2258,6 +2288,36 @@ window.UI = (function () {
       body: `<div style="font-size:11.5px;color:#6d5a76;margin-bottom:12px;">${esc(cfg.desc)}</div>
         <div class="action-list">${opts}</div>`,
       footer: `<button class="btn btn-ghost" data-act="close-modal">不坐了</button>`
+    });
+  }
+
+  /* 地下管网：出口要自己找到，弹窗把「没探明的」也列出来当线索 */
+  function openTunnelModal(locId) {
+    const from = E.tunnelEntryOf(locId);
+    if (!from) return;
+    const S = E.state;
+    const seen = E.tunnelSeen();
+    const rows = E.tunnelNodeIds().filter(k => k !== from).map(k => {
+      const n = D.TUNNELS.nodes[k];
+      const known = seen.indexOf(k) >= 0;
+      const trip = E.tunnelTrip(from, k);
+      const off = !known || !trip || S.ap < trip.ap;
+      const why = !known ? '未探明' : !trip ? '不连通'
+        : S.ap < trip.ap ? '行动点不够' : `穿 ${trip.hop} 段 · 元气 -${trip.energy}`;
+      const cost = known && trip ? `${trip.ap} AP` : '？';
+      return `<button class="action" data-act="tunnel-go" data-from="${from}" data-to="${k}" ${off ? 'disabled' : ''}>
+        <div class="action-name">${known ? esc(n.name) : '？？？'}<span class="action-cost">${known ? cost : '未探明'}</span></div>
+        <div class="action-desc">${known ? why : '线索：' + esc(n.clue)}</div>
+      </button>`;
+    }).join('');
+    openModal({
+      title: '地下管网 · 旧图',
+      sub: `已探明 ${seen.length}/${E.tunnelNodeIds().length} 处 · 现在 ${E.clockText()} · 剩 ${S.ap} AP`,
+      body: `<div class="tunnel-note">${esc(D.TUNNELS.desc)}<br>
+          掀井盖固定 ${D.TUNNELS.entryAp} AP，每穿一段再花 ${D.TUNNELS.apPerHop} AP、掉 ${D.TUNNELS.energyPerHop} 点元气。
+          含烈酒 / 魔法糖浆的货过不了地铁安检，走这儿。</div>
+        <div class="action-list">${rows}</div>`,
+      footer: `<button class="btn btn-ghost" data-act="close-modal">盖回去</button>`
     });
   }
 
@@ -3041,6 +3101,18 @@ window.UI = (function () {
         break;
       }
 
+      case 'tunnel-go': {
+        const r = E.useTunnel(t.dataset.from, t.dataset.to);
+        if (!r.ok) { toast(r.msg, 'bad'); break; }
+        closeModal();
+        const node = D.TUNNELS.nodes[t.dataset.to];
+        window.MapView.teleport(node.loc);
+        toast(`从${node.name}钻出来 · -${r.ap} AP，元气 -${r.energy}`, 'good');
+        updateMapBars();
+        renderHUD();
+        break;
+      }
+
       case 'end-delivery-cancel':
         closeModal();
         break;
@@ -3576,7 +3648,12 @@ window.UI = (function () {
     else if (id === 'metro') openMetroModal(locId);
     else if (id === 'transit-bus') openTransitModal('bus');
     else if (id === 'transit-boat') openTransitModal('boat');
-    else if (id === 'garage') openGarageModal();
+    else if (id === 'tunnel') openTunnelModal(locId);
+    else if (id === 'tunnel-note') {
+      const r = E.discoverTunnel(E.tunnelEntryOf(locId));
+      toast(r.msg, r.ok ? 'good' : '');
+      renderHUD();
+    } else if (id === 'garage') openGarageModal();
     else if (id === 'book') {
       if (E.state.money < 120) { toast('钱不够。', 'bad'); return; }
       E.state.money -= 120;
@@ -3871,6 +3948,8 @@ window.UI = (function () {
       const ev = (D.ROAD_EVENTS.list || []).find(e => e.id === id);
       if (ev) openRoadEvent(ev);
     },
+    // 测试钩子：直接摊开地下管网图 / 深夜事件 / 战斗（?tunnel、?night、?battle 截图用）
+    debugTunnelModal: locId => openTunnelModal(locId || 'backwall'),
     // 测试钩子：把店里塞满客人 / 看看现在谁在等
     forceCustomers: (n, want) => {
       customers = [];

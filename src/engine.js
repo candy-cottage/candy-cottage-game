@@ -78,7 +78,14 @@ window.Engine = (function () {
     /* 修车铺装过的改装 id（全车通用，跟着存档走） */
     mods: [],
     /* 已经盘下来的产业 id：仓库 / 厂房 */
-    bases: []
+    bases: [],
+    /* 地下管网：探明过的出口 id、累计通行次数、最近一次动线 */
+    tunnels: { seen: ['snail'], uses: 0, last: null },
+    /* 深夜特殊事件：一天至多一回，key 记的是「第几天」 */
+    nightEvent: { key: '', count: 0 },
+    /* 当前这场战斗（进行中也跟着存档，读档能接着打）；null = 没在打 */
+    battle: null,
+    combat: { wins: 0, losses: 0, fled: 0 }
   };
 
   /* ---------------- 事件总线 ---------------- */
@@ -152,6 +159,10 @@ window.Engine = (function () {
     state.takeout = { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null };
     state.mods = [];
     state.bases = [];
+    state.tunnels = { seen: ['snail'], uses: 0, last: null };
+    state.nightEvent = { key: '', count: 0 };
+    state.battle = null;
+    state.combat = { wins: 0, losses: 0, fled: 0 };
     log('清晨五点。糖果屋的灯亮起来了。', 'good');
     generatePhoneOrders(2);
     startPhase(0);
@@ -1010,6 +1021,77 @@ window.Engine = (function () {
     log(`搭${kind === 'boat' ? '渡船' : '公交'}去了${r.note}（-${r.ap} AP，${r.fare}G）。`, 'info');
     emit(); save();
     return { ok: true, ap: r.ap, fare: r.fare, name: r.note };
+  }
+
+  /* ---------------- 地下管网 ----------------
+   * 和地铁走两套账：地铁收钱、过安检；管网不收钱、不过安检，改收元气。
+   * 「探明」只决定能不能从那个出口出来，路径本身允许穿过没探明的结构。 */
+  function tunnelState() {
+    if (!state.tunnels || typeof state.tunnels !== 'object') {
+      state.tunnels = { seen: ['snail'], uses: 0, last: null };
+    }
+    if (!Array.isArray(state.tunnels.seen)) state.tunnels.seen = ['snail'];
+    return state.tunnels;
+  }
+  function tunnelSeen() { return tunnelState().seen.slice(); }
+  function tunnelNodeIds() { return Object.keys(D.TUNNELS.nodes); }
+  function tunnelEntryOf(locId) {
+    return tunnelNodeIds().find(k => D.TUNNELS.nodes[k].loc === locId) || null;
+  }
+  function discoverTunnel(id) {
+    if (!D.TUNNELS.nodes[id]) return { ok: false, msg: '这里没有井盖。' };
+    const t = tunnelState();
+    if (t.seen.indexOf(id) >= 0) return { ok: false, msg: '这个出口已经记在图上了。' };
+    t.seen.push(id);
+    log(`记下了${D.TUNNELS.nodes[id].name}的位置。管网图又多了一个出口。`, 'good');
+    emit(); save();
+    return { ok: true, msg: `记下 ${D.TUNNELS.nodes[id].name}` };
+  }
+
+  /* 无向 BFS：返回 from 到各节点穿过的结构数（段数） */
+  function tunnelDist(from) {
+    if (!D.TUNNELS.links[from]) return {};
+    const dist = {}; dist[from] = 0;
+    const q = [from];
+    while (q.length) {
+      const cur = q.shift();
+      (D.TUNNELS.links[cur] || []).forEach(n => {
+        if (dist[n] == null) { dist[n] = dist[cur] + 1; q.push(n); }
+      });
+    }
+    return dist;
+  }
+  function tunnelCost(from, to) {
+    const d = tunnelDist(from);
+    return d[to] == null ? null : d[to];
+  }
+  function tunnelTrip(from, to) {
+    const hop = tunnelCost(from, to);
+    if (hop == null) return null;
+    return {
+      hop,
+      ap: (D.TUNNELS.entryAp || 0) + hop * (D.TUNNELS.apPerHop || 0),
+      energy: hop * (D.TUNNELS.energyPerHop || 0)
+    };
+  }
+  function useTunnel(from, to) {
+    const t = tunnelState();
+    if (!D.TUNNELS.nodes[from] || !D.TUNNELS.nodes[to]) return { ok: false, msg: '图上没有这个出口。' };
+    if (t.seen.indexOf(from) < 0) return { ok: false, msg: '你还没摸清这个井盖通到哪儿。' };
+    if (t.seen.indexOf(to) < 0) return { ok: false, msg: '那个出口还没探明，摸黑过去会迷路。' };
+    if (from === to) return { ok: false, msg: '已经在这儿了。' };
+    const trip = tunnelTrip(from, to);
+    if (!trip) return { ok: false, msg: '这两处管网不连通。' };
+    if (state.ap < trip.ap) return { ok: false, msg: `下井要 ${trip.ap} 点行动点，不够了。` };
+    state.ap -= trip.ap;
+    /* 元气不够也放行：管网是保命的退路，不该把人锁在城外，只扣到见底 */
+    state.energy = clamp(state.energy - trip.energy, 0, 100);
+    t.uses++;
+    t.last = { from, to, day: state.day };
+    log(`从${D.TUNNELS.nodes[from].name}下井，穿过 ${trip.hop} 段旧管网，`
+      + `从${D.TUNNELS.nodes[to].name}钻出来（-${trip.ap} AP，元气 -${trip.energy}）。`, 'info');
+    emit(); save();
+    return { ok: true, ...trip, name: D.TUNNELS.nodes[to].name };
   }
 
   /* ---------------- 三条软失败线 ----------------
@@ -1953,7 +2035,11 @@ window.Engine = (function () {
       roadEvent: { key: '', count: 0 },
       takeout: { enabled: false, orders: [], seq: 1, stats: { done: 0, earned: 0 }, last: null },
       mods: [],
-      bases: []
+      bases: [],
+      tunnels: { seen: ['snail'], uses: 0, last: null },
+      nightEvent: { key: '', count: 0 },
+      battle: null,
+      combat: { wins: 0, losses: 0, fled: 0 }
     };
   }
 
@@ -2138,6 +2224,28 @@ window.Engine = (function () {
     state.mods = state.mods.filter(id => D.VEHICLE_MODS.some(m => m.id === id));
     if (!Array.isArray(state.bases)) state.bases = [];
     state.bases = state.bases.filter(id => !!D.BASES[id]);
+    /* 管网：老档没有就只认家门口那个井盖；非法 id 一律丢掉 */
+    if (!state.tunnels || typeof state.tunnels !== 'object') {
+      state.tunnels = { seen: ['snail'], uses: 0, last: null };
+    }
+    if (!Array.isArray(state.tunnels.seen)) state.tunnels.seen = ['snail'];
+    state.tunnels.seen = state.tunnels.seen.filter(id => !!D.TUNNELS.nodes[id]);
+    if (state.tunnels.seen.indexOf('snail') < 0) state.tunnels.seen.unshift('snail');
+    if (typeof state.tunnels.uses !== 'number' || state.tunnels.uses < 0) state.tunnels.uses = 0;
+    if (!state.nightEvent || typeof state.nightEvent !== 'object') {
+      state.nightEvent = { key: '', count: 0 };
+    }
+    if (typeof state.nightEvent.count !== 'number' || state.nightEvent.count < 0) state.nightEvent.count = 0;
+    if (typeof state.nightEvent.key !== 'string') state.nightEvent.key = '';
+    if (!state.combat || typeof state.combat !== 'object') state.combat = { wins: 0, losses: 0, fled: 0 };
+    ['wins', 'losses', 'fled'].forEach(k => {
+      if (typeof state.combat[k] !== 'number' || state.combat[k] < 0) state.combat[k] = 0;
+    });
+    /* 半途读档：战斗对象不合法就当没打过，别把玩家卡在一个空弹窗里 */
+    if (state.battle && (!D.COMBAT || !D.COMBAT.enemies[state.battle.enemy] ||
+        typeof state.battle.hp !== 'number' || typeof state.battle.ehp !== 'number')) {
+      state.battle = null;
+    }
   }
 
   function save() { return writeKey(SAVE_KEY); }
@@ -2218,6 +2326,8 @@ window.Engine = (function () {
     licenseDue, licenseDays, creditInfo, creditRoom, settlePayables, canOddJob, oddJob,
     retire, retireSummary, retireList, metroAdj, metroDist, metroCost,
     clockText, metroOpen, metroFare, rideMetro, rideTransit,
+    tunnelState, tunnelSeen, tunnelNodeIds, tunnelEntryOf, discoverTunnel,
+    tunnelDist, tunnelCost, tunnelTrip, useTunnel,
     sensitiveGoods, hasGear, gearInfo, buyGear, securityCheck,
     regionAt, cargoKeys, rollRoadEvent, applyRoadEvent,
     takeoutState, takeoutUnlocked, takeoutHas, openTakeout,
